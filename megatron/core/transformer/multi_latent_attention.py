@@ -192,6 +192,7 @@ class MultiLatentAttention(Attention):
         # Get the query, key and value tensors based on the type of attention -
         # self or cross attn.
         # query: [96, 1, 16, 128], key:[96, 1, 16, 128], value:[96, 1, 16, 128]
+        # JHSHIN, 여기서 RoPE applied tensor를 얻는다
         query, key, value = self.get_query_key_value_tensors(
             hidden_states,
             key_value_states,
@@ -222,6 +223,7 @@ class MultiLatentAttention(Attention):
                 query, key, value, attention_mask, packed_seq_params=packed_seq_params
             )
         else:
+            # 여기는 local에서 window masking만 하면 끝.
             core_attn_out = self.core_attention(
                 query,
                 key,
@@ -420,8 +422,10 @@ class MLASelfAttention(MultiLatentAttention):
         rotary_pos_sin = None
         packed_seq = packed_seq_params is not None and packed_seq_params.qkv_format == 'thd'
         if self.config.rope_type == "rope":
+            # JHSHIN, FIXME: 이 파트에서 local/global을 구분해야 함
             rotary_pos_emb = self.rotary_pos_emb(rotary_seq_len, packed_seq=packed_seq)
         else:
+            # JHSHIN, yarn 등의 non-vanilla rope를 위함.
             if self.config.apply_rope_fusion:
                 rotary_pos_cos, rotary_pos_sin = self.rotary_pos_emb.get_cached_cos_sin(
                     rotary_seq_len, dtype=hidden_states.dtype, packed_seq=packed_seq
@@ -433,6 +437,7 @@ class MLASelfAttention(MultiLatentAttention):
                     and fused_apply_mla_rope_for_kv is not None
                 ), "Fused MLA RoPE apply is not imported successfully"
             else:
+                # JHSHIN, FIXME: 이 파트에서 local/global을 구분해야 함
                 rotary_pos_emb, mscale = self.rotary_pos_emb(rotary_seq_len, packed_seq=packed_seq)
 
         if packed_seq_params is not None:

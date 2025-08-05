@@ -4,7 +4,8 @@ import warnings
 from abc import abstractmethod
 from typing import Optional, Protocol, Tuple
 
-from megatron.core.tensor_parallel.layers import ColumnParallelLinear, RowParallelLinear
+# JHSHIN, add RowParallelLinearLayerNorm. 
+from megatron.core.tensor_parallel.layers import ColumnParallelLinear, RowParallelLinear, RowParallelLinearLayerNorm
 from megatron.core.transformer.dot_product_attention import DotProductAttention
 from megatron.core.transformer.mlp import MLPSubmodules
 from megatron.core.transformer.moe.experts import GroupedMLP, SequentialMLP
@@ -34,6 +35,11 @@ class BackendSpecProvider(Protocol):
     @abstractmethod
     def row_parallel_linear(self) -> type:
         """Which row parallel linear module the backend uses"""
+        ...
+
+    @abstractmethod
+    def row_parallel_linear_layer_norm(self) -> type:
+        """ JHSHIN: Which row parallel linear module the backend uses, with Post-LN """
         ...
 
     @abstractmethod
@@ -74,6 +80,10 @@ class LocalSpecProvider(BackendSpecProvider):
     def row_parallel_linear(self) -> type:
         """Which row parallel linear module the backend uses"""
         return RowParallelLinear
+
+    def row_parallel_linear_layer_norm(self) -> type:
+        """ JHSHIN: Which row parallel linear module the backend uses, with Post-LN """
+        return RowParallelLinearLayerNorm
 
     def fuse_layernorm_and_linear(self) -> bool:
         """Does the backend choose a single module for layernorm and linear"""

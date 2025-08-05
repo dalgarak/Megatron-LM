@@ -83,6 +83,24 @@ except:
     dist_all_gather_func = torch.distributed._all_gather_base
     dist_reduce_scatter_func = torch.distributed._reduce_scatter_base
 
+# JHSHIN, to use LayerNorm, copied from megatron.core.transformer.transformer_block
+if HAVE_TE:
+    from megatron.core.extensions.transformer_engine import (
+        TENorm,
+        get_cpu_offload_context,
+        te_checkpoint,
+    )
+
+    LayerNormImpl = TENorm
+
+elif HAVE_APEX:
+    LayerNormImpl = FusedLayerNorm
+
+else:
+    from megatron.core.transformer.torch_norm import WrappedTorchNorm
+
+    LayerNormImpl = WrappedTorchNorm
+
 
 def param_is_not_tensor_parallel_duplicate(param):
     """Returns true if the passed-in parameter is not a duplicate parameter
@@ -1296,3 +1314,36 @@ class RowParallelLinear(torch.nn.Module):
             f"{type(self).__name__}(in_features={self.input_size}, "
             f"out_features={self.output_size}, bias={use_bias}, TP={tp})"
         )
+
+
+class RowParallelLinearLayerNorm(RowParallelLinear):
+    """ JHSHIN: Modified From RowParallelLinear with an additional Post-LN,
+        for Peri-LN Implementation. 
+    """
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        *,
+        config: ModelParallelConfig,
+        init_method: Callable,
+        bias: bool,
+        input_is_parallel: bool,
+        skip_bias_add: bool,
+        stride: int = 1,
+        keep_master_weight_for_test: bool = False,
+        is_expert: bool = False,
+        tp_comm_buffer_name: str = None,  # Not used
+        tp_group: Optional[torch.distributed.ProcessGroup] = None,
+    ):
+        super().__init__(input_size, output_size, config=config, init_method=init_method,
+                         bias=bias, input_is_parallel=input_is_parallel, skip_bias_add=skip_bias_add,
+                         stride=stride, keep_master_weight_for_test=keep_master_weight_for_test,
+                         is_expert=is_expert, tp_comm_buffer_name=tp_comm_buffer_name,
+                         tp_group=tp_group)
+        self.post_layernorm = LayerNormImpl(config, output_size)o
+
+    def forward(self, x):
+        """ Forward with additional Post-LN on output. """
+        output, output_bias = super().forward(x)
+        return self.post_layernorm(output), output_bias
