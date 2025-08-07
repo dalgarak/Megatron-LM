@@ -702,6 +702,45 @@ class TERowParallelLinear(TELinear):
             super().backward_dw()
 
 
+# JHSHIN, modified
+# copied from nemo.collections.nlp.models.language_modeling.megatron.gemma2.gemma2_modules
+class TERowParallelLinearLayerNorm(TERowParallelLinear):
+    """Modified From TERowParallelLinear with an additional Post-LN."""
+
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        *,
+        config: TransformerConfig,
+        init_method: Callable,
+        bias: bool,
+        input_is_parallel: bool,
+        skip_bias_add: bool,
+        is_expert: bool,
+        tp_comm_buffer_name: Optional[str] = None,
+        tp_group: Optional[torch.distributed.ProcessGroup] = None,
+    ):
+        super().__init__(
+            input_size,
+            output_size,
+            config=config,
+            init_method=init_method,
+            bias=bias,
+            input_is_parallel=input_is_parallel,
+            skip_bias_add=skip_bias_add,
+            is_expert=is_expert,
+            tp_comm_buffer_name=tp_comm_buffer_name,
+            tp_group=tp_group,
+        )
+        self.post_layernorm = TENorm(config, output_size)
+
+    def forward(self, x):
+        """Forward with additional Post LN on output"""
+        output, bias = super().forward(x)
+        return self.post_layernorm(output), bias
+
+
 class TEDotProductAttention(te.pytorch.DotProductAttention):
     """Wrapper for the Transformer-Engine's `DotProductAttention` layer
     that also has "flash attention" enabled.
@@ -925,6 +964,56 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
             )
 
         return core_attn_out
+
+
+# JHSHIN added
+def _is_local_attn_layer(layer_number: int, layer_pattern: Tuple[int, int],) -> bool:
+    pattern_size = sum(layer_pattern)
+    return layer_number % pattern_size != 0
+
+
+class TEDotProductAttentionSwitchingLocalGlobal(TEDotProductAttention):
+    """ JHSHIN: WBL 100B MoE+MLA를 위한 Gemma3-style Local-Global Core Attention.
+    """
+    def __init__(
+        self,
+        config: TransformerConfig,
+        layer_number: int,
+        attn_mask_type: AttnMaskType,
+        attention_type: str,
+        attention_dropout: Optional[float] = None,
+        softmax_scale: Optional[float] = None,
+        k_channels: Optional[int] = None,
+        v_channels: Optional[int] = None,
+        cp_comm_type: str = "p2p",
+        model_comm_pgs: ModelCommProcessGroups = None,
+    ):
+        # Overwrite config.window_size based on layer_number
+        config = copy.deepcopy(config)
+		# JHSHIN, NOTICE: 추가 설정 필요 - config.interleaved_attn_pattern이 정의되어 있어야 함
+        if _is_local_attn_layer(layer_number, config.interleaved_attn_pattern):
+            # local attention, (q, k)
+            config.window_size = (config.window_size, 0)
+        else:
+            # global attention
+            config.window_size = None
+
+        # The VL model calculates mask manually
+        if config.is_vision_language:
+            attn_mask_type = AttnMaskType.arbitrary
+
+        super().__init__(
+            config=config,
+            layer_number=layer_number,
+            attn_mask_type=attn_mask_type,
+            attention_type=attention_type,
+            attention_dropout=attention_dropout,
+			softmax_scale=softmax_scale,
+			k_channels=k_channels,
+			v_channels=v_channels,
+			cp_comm_type=cp_comm_type,
+			model_comm_pgs=model_comm_pgs,
+        )
 
 
 if HAVE_TE and is_te_min_version("1.9.0.dev0"):
@@ -1337,10 +1426,55 @@ if HAVE_TE and is_te_min_version("1.9.0.dev0"):
                 tp_axis_map, prefix, sharded_offsets, metadata
             )
 
+
+    class TERowParallelGroupedLinearLayerNorm(TERowParallelGroupedLinear):
+        """
+        JHSHIN: GroupedLinear layer but specialized to row-parallel style,
+        and apply Post-LN. 
+        """
+        def __init__(
+            self,
+            num_gemms: int,
+            input_size: int,
+            output_size: int,
+            *,
+            config: ModelParallelConfig,
+            init_method: Callable,
+            bias: bool,
+            skip_bias_add: bool,
+            is_expert: bool,
+            tp_comm_buffer_name: Optional[str] = None,
+            tp_group: Optional[torch.distributed.ProcessGroup] = None,
+        ):
+            super().__init__(
+                num_gemms=num_gemms,
+                input_size=input_size,
+                output_size=output_size,
+                parallel_mode="row",
+                config=config,
+                init_method=condition_init_method(config, init_method),
+                bias=bias,
+                skip_bias_add=skip_bias_add,
+                is_expert=is_expert,
+                tp_comm_buffer_name=tp_comm_buffer_name,
+                tp_group=tp_group,
+            )
+            self.post_layernorm = TENorm(config, output_size)
+
+        def forward(self, x, m_splits):
+            """Forward."""
+            out = super().forward(x, m_splits)
+            if self.te_return_bias:
+                return self.post_layernorm(out)
+
+            # dewrap tuple
+            return self.post_layernorm(out[0]), None
+
 else:
     TEGroupedLinear = None  # type: ignore[assignment, misc]
     TEColumnParallelGroupedLinear = None  # type: ignore[assignment, misc]
     TERowParallelGroupedLinear = None  # type: ignore[assignment, misc]
+    TERowParallelGroupedLinearLayerNorm = None  # type: ignore[assignment, misc]
 
 
 if HAVE_TE and is_te_min_version("1.13.0"):

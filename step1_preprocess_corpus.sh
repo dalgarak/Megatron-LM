@@ -1,0 +1,1 @@
+ python tools/preprocess_data.py --input ~/huggingfaceTB-corpus/hftb_finemath_4plus.jsonl --json-keys text --workers 8 --partitions 4 --tokenizer-type HuggingFaceTokenizer --tokenizer-model ~/egpt-models/egpt-3b-preview-1.1T-fully-trained-250123/ --output-prefix ../hftb_finemath_4plus_egpt-3b-tokenizer-megatron

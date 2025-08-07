@@ -323,3 +323,48 @@ class MultimodalRotaryEmbedding(nn.Module):
             # CP rank
             emb = get_pos_emb_on_this_cp_rank(emb, 0, self.cp_group)
         return emb
+
+
+# JHSHIN added
+class LocalGlobalRotaryEmbedding(RotaryEmbedding):
+    """
+    Gemma3-style position rope embedding.
+    Calculates rope embeddings for both local and global attention layers.
+    """
+
+    def __init__(
+        self,
+        rotary_base: int = 10000,
+        rotary_base_global: int = 1_000_000,            # ADDED
+        rope_scaling: bool = False,
+        rope_scaling_factor: float = 8.0,               # 주의; 1단계 사전학습 때에는 scaling factor를 1.0으로 세팅해야 한다. arXiv:2306.15595
+        **kwargs,
+    ) -> None:
+        # The rope scaling in RotaryEmbedding is not linear scaling,
+        # so this flag must be off. Will calculate linear scaling below.
+        assert rope_scaling is False
+
+        # Get inv_freq for global attention layers
+        super().__init__(
+            rope_scaling=rope_scaling,
+            rotary_base=rotary_base_global,
+            **kwargs,
+        )
+        # 여기서 scaling factor로 inv_freq를 수정한다. 주의: 1단계 사전학습에서는 scaling_factor를 1.0으로 해야 한다.
+        # 3단계 길이를 보상하는 500B 토큰 학습 단계 때 scaling factor를 8로 수정하여 학습해야 함.
+        self.inv_freq /= rope_scaling_factor
+
+        # Setup Rotary Embedding for local attentions
+        self.rope_local = RotaryEmbedding(
+            rope_scaling=rope_scaling,
+            rotary_base=rotary_base,
+            **kwargs,
+        )
+
+    @lru_cache(maxsize=32)
+    def forward(self, max_seq_len: int, offset: int = 0, packed_seq: bool = False) -> Tensor:
+        """Get global and local rope embedding"""
+        rope_global = super().forward(max_seq_len, offset, packed_seq)
+        rope_local = self.rope_local.forward(max_seq_len, offset, packed_seq)
+        return rope_local, rope_global
+
