@@ -132,24 +132,24 @@ class TransformerConfig(ModelParallelConfig):
     """If True, uses the original BERT residule connection ordering."""
 
     layernorm_epsilon: float = 1e-5
-    """Epsilon value for any LayerNorm operations."""
+    """Epsilon value for any LayerNorm operations. JHSHIN: 기본 값을 1e-5 -> 1e-6으로 변경 검토 필요"""
 
-    layernorm_zero_centered_gamma: bool = False
+    layernorm_zero_centered_gamma: bool = True
     """If set to True, the LayerNorm is adjusted to center the gamma values around 0. This improves
-    numerical stability."""
+    numerical stability. JHSHIN: 기본 값을 True로 변경"""
 
-    add_bias_linear: bool = True
+    add_bias_linear: bool = False
     """Include a bias term in all linear layers (QKV projections, after core attention, and two in
-    MLP layer)."""
+    MLP layer). JHSHIN: 기본 값을 True -> False로"""
 
     add_qkv_bias: bool = False
     """Add a bias term only for QKV projections."""
 
-    gated_linear_unit: bool = False
-    """Use a gated linear unit for the first linear layer in the MLP."""
+    gated_linear_unit: bool = True
+    """Use a gated linear unit for the first linear layer in the MLP. JHSHIN: 기본값을 False -> True로."""
 
     activation_func: Callable = F.gelu
-    """Activation function to use for the non-linearity in the MLP."""
+    """Activation function to use for the non-linearity in the MLP. JHSHIN: FIXME; 확인 및 수정 필요함."""
 
     activation_func_fp8_input_store: bool = False
     """Store the input of MLP activation function in FP8 for backprop to save memory.
@@ -165,7 +165,12 @@ class TransformerConfig(ModelParallelConfig):
 
     window_size: Optional[Tuple[int, int]] = None
     """If not None, then will use sliding window attention. The size of the window is specified by
-    the numbers inside the tuple; -1 is special value meaning "infinite window size"."""
+    the numbers inside the tuple; -1 is special value meaning "infinite window size". 
+    JHSHIN: FIXME; 512로 변경 필요."""
+
+    interleaved_attn_pattern: Optional[Tuple[int, int]] = None
+    """JHSHIN: WBL 100B MoE를 위한 Local-Global Switching Attention을 위한 설정. (local, global)로
+    구성하면 되고, 6의 배수이면 (5, 1)로 구성하면 된다."""
 
     normalization: str = "LayerNorm"
     """Which norm to use for normalization layers, valid options are `LayerNorm` and `RMSNorm`."""
@@ -1366,7 +1371,10 @@ class MLATransformerConfig(TransformerConfig):
     """Type of RoPE to use. Default to yarn, options are rope and yarn."""
 
     rotary_base: float = 10000
-    """Rotary base for the rotary embeddings, used by rope and yarn."""
+    """Rotary base for the rotary embeddings, used by rope and yarn. JHSHIN: local-global을 위해서는 tuple 타입이 되어야 함. 그래서 이걸 local로 두고, global을 별도로 생성한다."""
+
+    rotary_base_global: float = 1_000_000
+    """JHSHIN: Rotary base for the global rotary embeddings."""
 
     rotary_percent: float = 1.0
     """Rotary percent for the rotary embeddings, used by rope."""

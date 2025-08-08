@@ -108,20 +108,21 @@ def _is_local_attn_layer(layer_number: int, layer_pattern: Tuple[int, int],) -> 
     pattern_size = sum(layer_pattern)
     return layer_number % pattern_size != 0
 
-
+# JHSHIN added
 class LocalGlobalRotaryEmbedding(RotaryEmbedding):
-    """Gemma3-style position rope embedding.
+    """
+    Gemma3-style position rope embedding.
     Calculates rope embeddings for both local and global attention layers.
     """
 
     def __init__(
         self,
+        rotary_base: int = 10000,
+        rotary_base_global: int = 1_000_000,            # ADDED
         rope_scaling: bool = False,
-        rope_scaling_factor: float = 8.0,
-        rotary_base: int = 10_000,
-        rotary_base_global: int = 1_000_000,
+        rope_scaling_factor: float = 8.0,               # 주의; 1단계 사전학습 때에는 scaling factor를 1.0으로 세팅해야 한다. arXiv:2306.15595
         **kwargs,
-    ):
+    ) -> None:
         # The rope scaling in RotaryEmbedding is not linear scaling,
         # so this flag must be off. Will calculate linear scaling below.
         assert rope_scaling is False
@@ -132,6 +133,8 @@ class LocalGlobalRotaryEmbedding(RotaryEmbedding):
             rotary_base=rotary_base_global,
             **kwargs,
         )
+        # 여기서 scaling factor로 inv_freq를 수정한다. 주의: 1단계 사전학습에서는 scaling_factor를 1.0으로 해야 한다.
+        # 3단계 길이를 보상하는 500B 토큰 학습 단계 때 scaling factor를 8로 수정하여 학습해야 함.
         self.inv_freq /= rope_scaling_factor
 
         # Setup Rotary Embedding for local attentions
@@ -149,6 +152,7 @@ class LocalGlobalRotaryEmbedding(RotaryEmbedding):
         return rope_local, rope_global
 
 
+
 class LocalGlobalYarnRotaryEmbedding(YarnRotaryEmbedding):
     """Gemma3-style position rope embedding with YARN.
     Calculates rope embeddings for both local and global attention layers.
@@ -156,58 +160,28 @@ class LocalGlobalYarnRotaryEmbedding(YarnRotaryEmbedding):
 
     def __init__(
         self,
-        kv_channels: int,
-        rotary_percent: float = 1.0,
-        rotary_interleaved: bool = False,
-        seq_len_interpolation_factor: Optional[float] = None,
         rotary_base: float = 10000.0,
         rotary_base_global: float = 1000000.0,
-        use_cpu_initialization: bool = False,
         scaling_factor: float = 1.0,
         original_max_position_embeddings: int = 4096,
-        beta_fast: float = 32.0,
-        beta_slow: float = 1.0,
-        mscale: float = 1.0,
-        mscale_all_dim: float = 0.0,
-        cp_group: Optional[torch.distributed.ProcessGroup] = None,
+        **kwargs,
     ):
-        # The rope scaling in RotaryEmbedding is not linear scaling,
-        # so this flag must be off. Will calculate linear scaling below.
-        assert rope_scaling is False
-
         # Get inv_freq for global attention layers
         super().__init__(
-            kv_channels=kv_channels,
-            rotary_percent=rotary_percent,
-            rotary_interleaved=rotary_interleaved,
-            seq_len_interpolation_factor=seq_len_interpolation_factor,
             rotary_base=rotary_base_global,
-            use_cpu_initialization=use_cpu_initialization,
             scaling_factor=scaling_factor,
             original_max_position_embeddings=original_max_position_embeddings,
-            beta_fast=beta_fast,
-            beta_slow=beta_slow,
-            mscale=mscale,
-            mscale_all_dim=mscale_all_dim,
-            cp_group=cp_group,
+            **kwargs,
         )
-        self.inv_freq /= rope_scaling_factor
+        # CHECKME: YaRN의 특성상 여기서 다시 수정하면 X
+        #self.inv_freq /= scaling_factor
 
         # Setup Rotary Embedding for local attentions
         self.rope_local = YarnRotaryEmbedding(
-            kv_channels=kv_channels,
-            rotary_percent=rotary_percent,
-            rotary_interleaved=rotary_interleaved,
-            seq_len_interpolation_factor=seq_len_interpolation_factor,
             rotary_base=rotary_base,
-            use_cpu_initialization=use_cpu_initialization,
             scaling_factor=scaling_factor,
             original_max_position_embeddings=original_max_position_embeddings,
-            beta_fast=beta_fast,
-            beta_slow=beta_slow,
-            mscale=mscale,
-            mscale_all_dim=mscale_all_dim,
-            cp_group=cp_group,
+            **kwargs,
         )
 
     @lru_cache(maxsize=32)
@@ -218,6 +192,9 @@ class LocalGlobalYarnRotaryEmbedding(YarnRotaryEmbedding):
         return rope_local, rope_global
 
 
+# 베이스는 megatron.core.transformer.multi_latent_attention의 MultiLatentAttention을 상속,
+# 임베딩만 덮어 쓰는 방법으로 구현함. 
+# CHECKME: Megatron-LM 버전 업 시 원래 클래스의 self.rotary_pos_emb 생성 루틴을 반영해야 함.
 class LocalGlobalMultiLatentAttention(MultiLatentAttention):
     def __init__(
         self,
@@ -260,6 +237,8 @@ class LocalGlobalMultiLatentAttention(MultiLatentAttention):
 
 # 나머지는 그대로 사용하고, get_query_key_value_tensors()만 위에 맞게 변경. 
 # 베이스는 megatron.core.transformer.multi_latent_attention의 MLASelfAttention 정의를 가져옴
+# CHECKME: __init__()를 포함 하위 구현을 최신에 맞게 다시 업데이트 필요.
+# 다중 상속으로 깔끔하게 해결 가능한지 체크.
 class LocalGlobalMLASelfAttention(LocalGlobalMultiLatentAttention):
     """Gemma3-style, MLA Self-attention layer class
 
