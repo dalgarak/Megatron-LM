@@ -1450,7 +1450,6 @@ if HAVE_TE and is_te_min_version("1.9.0.dev0"):
                 num_gemms=num_gemms,
                 input_size=input_size,
                 output_size=output_size,
-                parallel_mode="row",
                 config=config,
                 init_method=condition_init_method(config, init_method),
                 bias=bias,
