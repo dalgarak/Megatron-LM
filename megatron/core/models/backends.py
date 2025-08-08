@@ -2,9 +2,12 @@
 
 import warnings
 from abc import abstractmethod
-from typing import Optional, Protocol, Tuple
+from typing import Optional, Protocol, Tuple, Callable
 
-from megatron.core.tensor_parallel.layers import ColumnParallelLinear, RowParallelLinear, RowParallelLinearLayerNorm
+import torch
+
+from megatron.core.tensor_parallel.layers import ColumnParallelLinear, RowParallelLinear
+from megatron.core.model_parallel_config import ModelParallelConfig
 from megatron.core.transformer.dot_product_attention import DotProductAttention
 from megatron.core.transformer.mlp import MLPSubmodules
 from megatron.core.transformer.moe.experts import GroupedMLP, SequentialMLP
@@ -68,6 +71,40 @@ class BackendSpecProvider(Protocol):
         """Which module and submodules to use for grouped mlp"""
         ...
 
+# JHSHIN added
+class RowParallelLinearLayerNorm(RowParallelLinear):
+    """ JHSHIN: Modified From RowParallelLinear with an additional Post-LN,
+        for Peri-LN Implementation. 
+    """
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        *,
+        config: ModelParallelConfig,
+        init_method: Callable,
+        bias: bool,
+        input_is_parallel: bool,
+        skip_bias_add: bool,
+        stride: int = 1,
+        keep_master_weight_for_test: bool = False,
+        is_expert: bool = False,
+        tp_comm_buffer_name: str = None,  # Not used
+        tp_group: Optional[torch.distributed.ProcessGroup] = None,
+    ):
+        super().__init__(input_size, output_size, config=config, init_method=init_method,
+                         bias=bias, input_is_parallel=input_is_parallel, skip_bias_add=skip_bias_add,
+                         stride=stride, keep_master_weight_for_test=keep_master_weight_for_test,
+                         is_expert=is_expert, tp_comm_buffer_name=tp_comm_buffer_name,
+                         tp_group=tp_group)
+        # 우리가 사용할 게 RMSNorm이므로 apex 유무와 상관없이 Torch LayerNorm을 사용.
+        self.post_layernorm = WrappedTorchNorm(config, output_size)
+
+    def forward(self, x):
+        """ Forward with additional Post-LN on output. """
+        output, output_bias = super().forward(x)
+        return self.post_layernorm(output), output_bias
+
 
 class LocalSpecProvider(BackendSpecProvider):
     """A protocol for providing Local submodules used in Spec building."""
@@ -81,7 +118,7 @@ class LocalSpecProvider(BackendSpecProvider):
         return RowParallelLinear
 
     def row_parallel_linear_layer_norm(self) -> type:
-        """ JHSHIN: Which row parallel linear module the backend uses, with Post-LN """
+        """Which row parallel linear module the backend uses with Post-LayerNorm."""
         return RowParallelLinearLayerNorm
 
     def fuse_layernorm_and_linear(self) -> bool:
@@ -119,3 +156,4 @@ class LocalSpecProvider(BackendSpecProvider):
             return SequentialMLP, MLPSubmodules(
                 linear_fc1=ColumnParallelLinear, linear_fc2=RowParallelLinear
             )
+

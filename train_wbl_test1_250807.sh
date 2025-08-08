@@ -12,6 +12,7 @@ NNODES=${SLURM_NNODES:-"1"}
 NODE_RANK=${RANK:-"0"}
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
+# 인자 순서, checkpoint, tokenizer, data path
 CHECKPOINT_PATH=$1
 TOKENIZER_MODEL=$2
 DATA_PATH=$3
@@ -24,27 +25,29 @@ DISTRIBUTED_ARGS=(
     --master_port $MASTER_PORT
 )
 
+# MLA이므로 position-embedding-type을 none으로 둔다.
+#  --no-position-embedding은 deprecated. 쓰지 않는다.
+#  --max-position-embeddings 4096 이외의 값을 사용하면 경고가 나온다.
 MODEL_ARGS=(
     --use-mcore-models
     --disable-bias-linear
     --seq-length 4096
-    --max-position-embeddings 32768
+    --max-position-embeddings 4096
     --num-layers 8 
-    --hidden-size 4096
-    --ffn-hidden-size 14336
+    --position-embedding-type none
+    --hidden-size 1024 
+    --ffn-hidden-size 8192 
     --num-attention-heads 32
     --init-method-std 0.01
     --attention-dropout 0.0
     --hidden-dropout 0.0
-    --position-embedding-type rope
-    --swiglu
     --untie-embeddings-and-output-weights
-    --group-query-attention
-    --num-query-groups 8
     --no-masked-softmax-fusion
-    --no-position-embedding
 )
 
+# YaRN을 사용하지 않으므로 mscale을 넣지 않는다.
+#    --mscale 1.0
+#    --mscale-all-dim 1.0
 MLA_ARGS=(
     --multi-latent-attention
     --q-lora-rank 512
@@ -53,36 +56,35 @@ MLA_ARGS=(
     --qk-pos-emb-head-dim 64
     --v-head-dim 128
     --rotary-scaling-factor 40
-    --mscale 1.0
-    --mscale-all-dim 1.0
     --normalization RMSNorm
     --rope-type rope
     --rotary-base 10000
     --rotary-base-global 1000000
 )
 
-#
+#    --moe-router-pre-softmax false
+# FIXME DeepEP 설치 후에 활성화 필요함   --moe-enable-deepep
+# --moe-token-dispatcher-type flex 는 deepep와 연동.
 MOE_ARGS=(
     --num-experts 128 
-    --moe-layer-freq ([0]*3+[1]*5)
+    --moe-layer-freq '([0]*3+[1]*5)'
     --moe-ffn-hidden-size 768
     --moe-router-load-balancing-type aux_loss
     --moe-router-topk 8
-    --moe-router-pre-softmax false
     --moe-aux-loss-coeff 1e-2
-    --moe-grouped-gemm true
+    --moe-grouped-gemm 
     --moe-aux-loss-coeff 1e-4
     --moe-router-num-groups 8
+    --moe-enable-deepep
     --moe-token-dispatcher-type flex
-    --moe-enable-deepep true
-    --moe-permute-fusion true
+    --moe-permute-fusion 
     --moe-router-dtype fp32
     --overlap-param-gather
     --overlap-grad-reduce
 )
 
 DATA_ARGS=(
-    --tokenizer-type Llama2Tokenizer
+    --tokenizer-type HuggingFaceTokenizer
     --tokenizer-model ${TOKENIZER_MODEL}
     --data-path $DATA_PATH
     --split 99990,8,2
@@ -100,12 +102,14 @@ TRAINING_ARGS=(
     --lr-warmup-iters 500
     --clip-grad 1.0
     --bf16
+    --use-flash-attn
 )
 
+# 아래 parallel-size의 곱이 world_size와 같아야 한다.
 MODEL_PARALLEL_ARGS=(
     --tensor-model-parallel-size 1
     --pipeline-model-parallel-size 4
-    --expert-model-parallel-size 8
+    --expert-model-parallel-size 2
     --use-distributed-optimizer
     --sequence-parallel
 )

@@ -149,7 +149,7 @@ class TransformerConfig(ModelParallelConfig):
     """Use a gated linear unit for the first linear layer in the MLP. JHSHIN: 기본값을 False -> True로."""
 
     activation_func: Callable = F.gelu
-    """Activation function to use for the non-linearity in the MLP. JHSHIN: FIXME; 확인 및 수정 필요함."""
+    """Activation function to use for the non-linearity in the MLP. JHSHIN: FIXME; tanh approx.를 안 쓰는걸 기본으로 함. 확인 및 수정 필요함."""
 
     activation_func_fp8_input_store: bool = False
     """Store the input of MLP activation function in FP8 for backprop to save memory.
@@ -163,12 +163,12 @@ class TransformerConfig(ModelParallelConfig):
     """True is rotate pairs of even and odd dimensions (RoFormer style), False is rotate pairs of
     first half and second half (LLaMa style). Default to False."""
 
-    window_size: Optional[Tuple[int, int]] = None
+    window_size: Optional[Tuple[int, int]] = (512, 0)
     """If not None, then will use sliding window attention. The size of the window is specified by
     the numbers inside the tuple; -1 is special value meaning "infinite window size". 
     JHSHIN: FIXME; 512로 변경 필요."""
 
-    interleaved_attn_pattern: Optional[Tuple[int, int]] = None
+    interleaved_attn_pattern: Optional[Tuple[int, int]] = (5, 1)
     """JHSHIN: WBL 100B MoE를 위한 Local-Global Switching Attention을 위한 설정. (local, global)로
     구성하면 되고, 6의 배수이면 (5, 1)로 구성하면 된다."""
 

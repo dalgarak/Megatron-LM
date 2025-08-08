@@ -40,6 +40,10 @@ class TESpecProvider(BackendSpecProvider):
         """Which row parallel linear module TE backend uses"""
         return TERowParallelLinear
 
+    def row_parallel_linear_layer_norm(self) -> type:
+        """Which row parallel linear module TE backend uses, w/Post-LN"""
+        return TERowParallelLinearLayerNorm
+
     def fuse_layernorm_and_linear(self) -> bool:
         """TE backend chooses a single module for layernorm and linear"""
         return True
