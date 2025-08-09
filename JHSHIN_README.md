@@ -50,3 +50,7 @@ git clone https://github.com/deepseek-ai/DeepEP.git
 cd DeepEP
 python setup.py install
 
+## Context Parallism을 위한 코드 수정 필요 사항
+see also
+
+https://github.com/NVIDIA/TransformerEngine/pull/1907
