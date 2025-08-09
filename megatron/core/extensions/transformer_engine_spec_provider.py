@@ -14,7 +14,6 @@ from megatron.core.extensions.transformer_engine import (
     TERowParallelGroupedLinear,
     TERowParallelLinear,
     TERowParallelLinearLayerNorm,                               # ADDED
-    TERowParallelGroupedLinearLayerNorm,                        # ADDED
     TEDotProductAttentionSwitchingLocalGlobal,                  # ADDED
 )
 from megatron.core.fusions.fused_layer_norm import FusedLayerNorm
@@ -81,7 +80,7 @@ class TESpecProvider(BackendSpecProvider):
         ):
             return TEGroupedMLP, MLPSubmodules(
                 #linear_fc1=TEColumnParallelGroupedLinear, linear_fc2=TERowParallelGroupedLinear
-                linear_fc1=TEColumnParallelGroupedLinear, linear_fc2=TERowParallelGroupedLinearLayerNorm if moe_use_post_layernorm else TERowParallelGroupedLinear
+                linear_fc1=TEColumnParallelGroupedLinear, linear_fc2=TERowParallelGroupedLinear,
             )
         elif moe_use_grouped_gemm:
             warnings.warn(
@@ -98,9 +97,9 @@ class TESpecProvider(BackendSpecProvider):
                 )
                 return SequentialMLP, MLPSubmodules(
                     #linear_fc1=ColumnParallelLinear, linear_fc2=RowParallelLinear
-                    linear_fc1=ColumnParallelLinear, linear_fc2=RowParallelLinearLayerNorm if moe_use_post_layernorm else RowParallelLinear
+                    linear_fc1=ColumnParallelLinear, linear_fc2=RowParallelLinear,
                 )
             return SequentialMLP, MLPSubmodules(
                 #linear_fc1=TEColumnParallelLinear, linear_fc2=TERowParallelLinear
-                linear_fc1=TEColumnParallelLinear, linear_fc2=TERowParallelLinearLayerNorm if moe_use_post_layernorm else TERowParallelLinear
+                linear_fc1=TEColumnParallelLinear, linear_fc2=TERowParallelLinear,
             )

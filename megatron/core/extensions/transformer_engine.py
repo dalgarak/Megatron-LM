@@ -740,6 +740,14 @@ class TERowParallelLinearLayerNorm(TERowParallelLinear):
         output, bias = super().forward(x)
         return self.post_layernorm(output), bias
 
+    def sharded_state_dict(self, prefix="", sharded_offsets=(), metadata=None):
+        """Sharding along axis 1, bias not sharded"""
+        state_dict = self.state_dict(prefix="", keep_vars=True)
+        return make_sharded_tensors_for_checkpoint(
+                #state_dict, prefix, {"weight": 1, "post_layernorm.weight": 0}, sharded_offsets
+                state_dict, prefix, {"weight": 1,}, sharded_offsets
+        )
+
 
 class TEDotProductAttention(te.pytorch.DotProductAttention):
     """Wrapper for the Transformer-Engine's `DotProductAttention` layer
@@ -1315,6 +1323,7 @@ if HAVE_TE and is_te_min_version("1.9.0.dev0"):
                 )
                 if self.use_bias:
                     sharded_state_dict[f"{prefix}bias{gemm_idx}"] = sub_sd[f"{gemm_idx}.bias"]
+
             # Adjust replica ids - replication along DP modulo EP
             for k, sh_ten in sharded_state_dict.items():
                 replica_id = sh_ten.replica_id
@@ -1326,6 +1335,7 @@ if HAVE_TE and is_te_min_version("1.9.0.dev0"):
                 else:
                     edp_replica_id = get_expert_data_parallel_rank()
                 sh_ten.replica_id = (*replica_id[:2], edp_replica_id)
+
             return sharded_state_dict
 
         def backward_dw(self):
@@ -1426,54 +1436,10 @@ if HAVE_TE and is_te_min_version("1.9.0.dev0"):
                 tp_axis_map, prefix, sharded_offsets, metadata
             )
 
-
-    class TERowParallelGroupedLinearLayerNorm(TERowParallelGroupedLinear):
-        """
-        JHSHIN: GroupedLinear layer but specialized to row-parallel style,
-        and apply Post-LN. 
-        """
-        def __init__(
-            self,
-            num_gemms: int,
-            input_size: int,
-            output_size: int,
-            *,
-            config: ModelParallelConfig,
-            init_method: Callable,
-            bias: bool,
-            skip_bias_add: bool,
-            is_expert: bool,
-            tp_comm_buffer_name: Optional[str] = None,
-            tp_group: Optional[torch.distributed.ProcessGroup] = None,
-        ):
-            super().__init__(
-                num_gemms=num_gemms,
-                input_size=input_size,
-                output_size=output_size,
-                config=config,
-                init_method=condition_init_method(config, init_method),
-                bias=bias,
-                skip_bias_add=skip_bias_add,
-                is_expert=is_expert,
-                tp_comm_buffer_name=tp_comm_buffer_name,
-                tp_group=tp_group,
-            )
-            self.post_layernorm = TENorm(config, output_size)
-
-        def forward(self, x, m_splits):
-            """Forward."""
-            out = super().forward(x, m_splits)
-            if self.te_return_bias:
-                return self.post_layernorm(out)
-
-            # dewrap tuple
-            return self.post_layernorm(out[0]), None
-
 else:
     TEGroupedLinear = None  # type: ignore[assignment, misc]
     TEColumnParallelGroupedLinear = None  # type: ignore[assignment, misc]
     TERowParallelGroupedLinear = None  # type: ignore[assignment, misc]
-    TERowParallelGroupedLinearLayerNorm = None  # type: ignore[assignment, misc]
 
 
 if HAVE_TE and is_te_min_version("1.13.0"):

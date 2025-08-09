@@ -70,8 +70,12 @@ def get_gpt_modelopt_spec(
         mla_qk_layernorm_map = {
             "self_attention.q_layernorm.": 'self_attention.linear_q_up_proj.layer_norm_',
             "self_attention.kv_layernorm.": 'self_attention.linear_kv_up_proj.layer_norm_',
+            # JHSHIN ADDED
+            "self_attention.post_layernorm.": 'self_attention.linear_proj.layer_norm_',
         }
-        dense_sharded_state_dict_keys_map = {'pre_mlp_layernorm.': 'mlp.linear_fc1.layer_norm_'}
+        dense_sharded_state_dict_keys_map = {'pre_mlp_layernorm.': 'mlp.linear_fc1.layer_norm_',
+                                             # JHSHIN ADDED
+                                             'post_mlp_layernorm.': 'mlp.linear_fc2.layer_norm_'}
         if not config.multi_latent_attention:
             moe_sharded_state_dict_keys_map.update(input_layernorm_map)
             dense_sharded_state_dict_keys_map.update(input_layernorm_map)
@@ -103,6 +107,7 @@ def get_gpt_modelopt_spec(
             linear_kv_up_proj=ColumnParallelLinear,
             core_attention=core_attention,
             linear_proj=RowParallelLinear,
+            post_layernorm=Norm,
         )
     else:
         norm = L2Norm if qk_l2_norm else Norm if config.qk_layernorm else IdentityOp
@@ -113,6 +118,7 @@ def get_gpt_modelopt_spec(
             linear_proj=RowParallelLinear,
             q_layernorm=norm,
             k_layernorm=norm,
+            post_layernorm=Norm,
         )
 
     dense_mlp_spec = get_mlp_module_spec(use_te=False)
@@ -129,6 +135,7 @@ def get_gpt_modelopt_spec(
             self_attn_bda=get_bias_dropout_add,
             pre_mlp_layernorm=Norm,
             mlp=dense_mlp_spec,
+            post_mlp_layernorm=Norm,
             mlp_bda=get_bias_dropout_add,
             # Map TE-layernorm-fusion keys back
             sharded_state_dict_keys_map=dense_sharded_state_dict_keys_map,
@@ -159,6 +166,7 @@ def get_gpt_modelopt_spec(
             self_attn_bda=get_bias_dropout_add,
             pre_mlp_layernorm=Norm,
             mlp=moe_mlp_spec,
+            post_mlp_layernorm=Norm,
             mlp_bda=get_bias_dropout_add,
             # Map TE-layernorm-fusion keys back
             sharded_state_dict_keys_map=moe_sharded_state_dict_keys_map,

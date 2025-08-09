@@ -206,6 +206,7 @@ class LocalGlobalMultiLatentAttention(MultiLatentAttention):
         cp_comm_type: Optional[str] = None,
         model_comm_pgs: ModelCommProcessGroups = None,
     ) -> None:
+        submodules.post_layernorm = TENorm
         super().__init__(config=config, submodules=submodules, layer_number=layer_number,
                          attn_mask_type=attn_mask_type, cp_comm_type=cp_comm_type,
                          model_comm_pgs=model_comm_pgs)
@@ -713,7 +714,7 @@ def get_wbl_moe_mlp_module_spec_for_backend(
     """Helper function to get module spec for MLP/MoE"""
 
 	# Post-LN을 사용하도록 수정
-    linear_fc2 = backend.row_parallel_linear_layer_norm()
+    linear_fc2 = backend.row_parallel_linear()
 
     if num_experts is None:
         # Dense MLP w/ or w/o TE modules.
@@ -748,6 +749,7 @@ def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
     qk_l2_norm: Optional[bool] = False,
     use_te_op_fuser: Optional[bool] = False,
     use_kitchen: bool = False,
+    use_post_layernorm: bool = True,
 ) -> ModuleSpec:
     """Use this spec to use lower-level Transformer Engine modules (required for fp8 training).
 
@@ -820,7 +822,8 @@ def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
 						# TEDotProductAttentionSwitchingLocalGlobal로 바인딩
                         core_attention=backend.core_attention_switching_local_global(),
 						# JHSHIN, apply Post-LN to implement Peri-LN.
-                        linear_proj=backend.row_parallel_linear_layer_norm(),
+                        linear_proj=backend.row_parallel_linear(),
+                        post_layernorm=backend.layer_norm() if use_post_layernorm else IdentityOp,
                         q_layernorm=IdentityOp,
                         kv_layernorm=IdentityOp,
                     ),
@@ -828,6 +831,7 @@ def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
                 self_attn_bda=get_bias_dropout_add,
                 pre_mlp_layernorm=backend.layer_norm() if num_experts else IdentityOp,
                 mlp=mlp,
+                post_mlp_layernorm=backend.layer_norm() if use_post_layernorm else IdentityOp,
                 mlp_bda=get_bias_dropout_add,
             ),
         )
@@ -843,7 +847,8 @@ def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
                         linear_qkv=backend.column_parallel_layer_norm_linear(),
                         core_attention=backend.core_attention(),
 						# JHSHIN, MHA 버전에서도 Peri-LN을 적용
-                        linear_proj=backend.row_parallel_linear_layer_norm(),
+                        linear_proj=backend.row_parallel_linear(),
+                        post_layernorm=backend.layer_norm() if use_post_layernorm else IdentityOp,
                         q_layernorm=(
                             L2Norm if qk_l2_norm else (qk_norm if qk_layernorm else IdentityOp)
                         ),
@@ -855,6 +860,7 @@ def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
                 self_attn_bda=get_bias_dropout_add,
                 pre_mlp_layernorm=backend.layer_norm() if num_experts else IdentityOp,
                 mlp=mlp,
+                post_mlp_layernorm=backend.layer_norm() if use_post_layernorm else IdentityOp,
                 mlp_bda=get_bias_dropout_add,
 				# JHSHIN, FIXME: mlp.linear_fc2에 있는 post_layernorm_weight, post_layernorm_bias
 				# 추가해야 하는지 검토 후 수정 필요.

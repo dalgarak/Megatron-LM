@@ -38,7 +38,7 @@ except:
 
 
 try:
-    from megatron.core.extensions.transformer_engine import TEColumnParallelLinear, TELinear
+    from megatron.core.extensions.transformer_engine import TEColumnParallelLinear, TELinear, TENorm
     from megatron.core.post_training.modelopt.layers import Linear
 
     HAVE_TE = True
@@ -60,6 +60,7 @@ class MLASelfAttentionSubmodules:
     linear_proj: Union[ModuleSpec, type] = None
     q_layernorm: Union[ModuleSpec, type] = None
     kv_layernorm: Union[ModuleSpec, type] = None
+    post_layernorm: Union[ModuleSpec, type] = None              # JHSHIN ADDED
 
 
 class MultiLatentAttention(Attention):
@@ -159,6 +160,16 @@ class MultiLatentAttention(Attention):
             tp_comm_buffer_name='proj',
         )
 
+        # POST-LN, JHSHIN.
+        if submodules.post_layernorm is None:
+            submodules.post_layernorm = TENorm
+        self.post_layernorm = build_module(
+            submodules.post_layernorm,
+            hidden_size=self.config.hidden_size,
+            config=self.config,
+            eps=self.config.layernorm_epsilon,
+        )
+
     def forward(
         self,
         hidden_states,
@@ -247,6 +258,9 @@ class MultiLatentAttention(Attention):
         # Output. [sq, b, h]
         # =================
         output, bias = self.linear_proj(core_attn_out)
+
+        # Post-LN, JHSHIN ADDED.
+        output = self.post_layernorm(output)
 
         return output, bias
 

@@ -3,6 +3,10 @@
 # Runs Mixtral 8x7B model
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
+export NVTE_DEBUG=1 
+export NVTE_DEBUG_LEVEL=1
+export NVTE_FLASH_ATTN=1
+export NVTE_FUSED_ATTN=0
 
 GPUS_PER_NODE=8
 # Change for multinode config
@@ -31,7 +35,7 @@ DISTRIBUTED_ARGS=(
 MODEL_ARGS=(
     --use-mcore-models
     --disable-bias-linear
-    --seq-length 4096
+    --seq-length 1024 
     --max-position-embeddings 4096
     --num-layers 8 
     --position-embedding-type none
@@ -52,8 +56,8 @@ MLA_ARGS=(
     --multi-latent-attention
     --q-lora-rank 512
     --kv-lora-rank 512
-    --qk-head-dim 128
-    --qk-pos-emb-head-dim 64
+    --qk-head-dim 96 
+    --qk-pos-emb-head-dim 32
     --v-head-dim 128
     --rotary-scaling-factor 40
     --normalization RMSNorm
@@ -75,8 +79,7 @@ MOE_ARGS=(
     --moe-grouped-gemm 
     --moe-aux-loss-coeff 1e-4
     --moe-router-num-groups 8
-    --moe-enable-deepep
-    --moe-token-dispatcher-type flex
+    --moe-token-dispatcher-type allgather
     --moe-permute-fusion 
     --moe-router-dtype fp32
     --overlap-param-gather
@@ -90,8 +93,13 @@ DATA_ARGS=(
     --split 99990,8,2
 )
 
+#    --use-precision-aware-optimizer
+#    --main-grads-dtype bf16
+#    --exp-avg-dtype bf16
+#    --exp-avg-sq-dtype bf16
+#    --grad-reduce-in-bf16
 TRAINING_ARGS=(
-    --micro-batch-size 1
+    --micro-batch-size 2
     --global-batch-size 256
     --lr 1e-4
     --train-iters 500000
@@ -103,6 +111,7 @@ TRAINING_ARGS=(
     --clip-grad 1.0
     --bf16
     --use-flash-attn
+    --attention-backend 'flash'
 )
 
 # 아래 parallel-size의 곱이 world_size와 같아야 한다.
@@ -116,12 +125,21 @@ MODEL_PARALLEL_ARGS=(
 
 LOGGING_ARGS=(
     --log-interval 1 \
-    --save-interval 10000 \
-    --eval-interval 1000 \
+    --eval-interval 500 \
+    --save-interval 5 \
+    --save-retain-interval 600 \
+    --ckpt-format torch_dist \
     --eval-iters 10 \
     --save $CHECKPOINT_PATH \
     --load $CHECKPOINT_PATH \
     --tensorboard-dir "${CHECKPOINT_PATH}/tensorboard" \
+    --tensorboard-log-interval 1 \
+    --tensorboard-queue-size 100 \
+    --use-pytorch-profiler \
+    --log-validation-ppl-to-tensorboard \
+    --log-params-norm \
+    --log-throughput \
+    --log-progress \
     --no-load-optim \
     --no-load-rng
 )

@@ -231,6 +231,7 @@ class TransformerLayerSubmodules:
 
     pre_mlp_layernorm: Union[ModuleSpec, type] = IdentityOp
     mlp: Union[ModuleSpec, type] = IdentityOp
+    post_mlp_layernorm: Union[ModuleSpec, type] = IdentityOp            # JHSHIN ADDED
     mlp_bda: Union[ModuleSpec, type] = IdentityFuncOp
 
     # Mapping for sharded tensor keys to be applied in `sharded_state_dict` method
