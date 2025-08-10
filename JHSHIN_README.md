@@ -16,7 +16,15 @@ proportion을 잡는다.
 (2) cd flash-attention/ && git checkout 27f501d && cd hopper/ && python setup.py install
 (3) python_path=`python -c "import site; print(site.getsitepackages()[0])"`
 (4) mkdir -p $python_path/flash_attn_3
-(5) wget -P $python_path/flash_attn_3 https://raw.githubusercontent.com/Dao-AILab/flash-attention/27f501dbe011f4371bff938fe7e09311ab3002fa/hopper/flash_attn_interface.py
+(5) wget -p $python_path/flash_attn_3 https://raw.githubusercontent.com/dao-ailab/flash-attention/27f501dbe011f4371bff938fe7e09311ab3002fa/hopper/flash_attn_interface.py
+
+
+(1) git clone https://github.com/Dao-AILab/flash-attention.git
+(2) cd flash-attention/ && git checkout 3ba6f82 && git submodule update --init && cd hopper/ && python setup.py install
+(3) python_path=`python -c "import site; print(site.getsitepackages()[0])"`
+(4) mkdir -p $python_path/flash_attn_3
+(5) cp flash_attn_interface.py $python_path/flash_attn_3/flash_attn_interface.py
+
 
 ## FP8 연산
 --fp8-recipe 'blockwise'

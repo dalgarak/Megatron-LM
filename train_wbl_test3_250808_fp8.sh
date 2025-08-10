@@ -6,6 +6,7 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 export NVTE_DEBUG=0
 export NVTE_DEBUG_LEVEL=0
 export NVTE_FLASH_ATTN=1
+export UB_SKIPMC=1
 
 GPUS_PER_NODE=8
 # Change for multinode config
@@ -36,9 +37,9 @@ MODEL_ARGS=(
     --disable-bias-linear
     --seq-length 4096
     --max-position-embeddings 4096
-    --num-layers 48 
+    --num-layers 24
     --position-embedding-type none
-    --hidden-size 512 
+    --hidden-size 1024
     --ffn-hidden-size 4096 
     --num-attention-heads 32
     --init-method-std 0.0134
@@ -54,10 +55,10 @@ MODEL_ARGS=(
 # rotary-scaling-factor는 나중에(사전학습 3단계) 8.0 으로 바꾼다 (for PI)
 MLA_ARGS=(
     --multi-latent-attention
-    --q-lora-rank 512
+    --q-lora-rank 512 
     --kv-lora-rank 512
-    --qk-head-dim 96
-    --qk-pos-emb-head-dim 32
+    --qk-head-dim 128
+    --qk-pos-emb-head-dim 64
     --v-head-dim 128
     --rotary-scaling-factor 1.0
     --normalization RMSNorm
@@ -74,8 +75,8 @@ MLA_ARGS=(
 #    dispatcher type에서 allgather는 EP가 1일 때만 사용하고, 2 이상이면 alltoall을 사용할 것.
 MOE_ARGS=(
     --num-experts 128 \
-    --moe-layer-freq '([0]*3+[1]*45)' \
-    --moe-ffn-hidden-size 768 \
+    --moe-layer-freq '([0]*3+[1]*21)' \
+    --moe-ffn-hidden-size 768	\
     --moe-router-load-balancing-type aux_loss \
     --moe-router-topk 8 \
     --moe-aux-loss-coeff 1e-2 \
@@ -121,7 +122,7 @@ TRAINING_ARGS=(
 #    blockwise가 좀 더 빠르긴 한데, loss 흔들림이 소형 모델 (5B) 테스트에서 발견되었음.
 FP8_ARGS=(
     --fp8-format 'hybrid'
-    --fp8-recipe 'blockwise'
+    --fp8-recipe 'delayed'
     --fp8-amax-history-len 1024 
     --fp8-amax-compute-algo 'max'
     --fp8-param-gather
@@ -135,14 +136,17 @@ FP8_ARGS=(
 # tensor-model-parallel-size가 2 이상일 경우 --tp-comm-overlap을 사용.
 # tensor-model-parallel-size가 2 미만일 경우 --sequence-parallel은 disable 됨에 주의.
 # context-parallel과 expert-parallel 수는 동일하게 맞춰도 된다 (배수로 적용되지 X)
+# Sliding Window를 사용하는 현재 메커니즘에서는 context parallel이 동작하지 않음.
+# 어떤 부분이 더 이득인지 살펴볼 필요가 있음
+# --context-parallel-size 1
 MODEL_PARALLEL_ARGS=(
-    --tensor-model-parallel-size 1
-    --pipeline-model-parallel-size 2
-    --expert-model-parallel-size 4
-    --context-parallel-size 1
+    --tensor-model-parallel-size 2
+    --pipeline-model-parallel-size 4
+    --expert-model-parallel-size 1
     --use-distributed-optimizer
     --sequence-parallel
     --cp-comm-type 'p2p'
+    --tp-comm-overlap
     --recompute-activations
 )
 
