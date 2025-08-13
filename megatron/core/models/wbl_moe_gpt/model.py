@@ -244,7 +244,7 @@ class LocalGlobalMultiLatentAttention(MultiLatentAttention):
         cp_comm_type: Optional[str] = None,
         model_comm_pgs: ModelCommProcessGroups = None,
     ) -> None:
-        submodules.post_layernorm = TENorm
+        submodules.post_attn_layernorm = TENorm
         super().__init__(config=config, submodules=submodules, layer_number=layer_number,
                          attn_mask_type=attn_mask_type,
                          attention_type=attention_type,
@@ -863,7 +863,7 @@ def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
                         core_attention=backend.core_attention_switching_local_global(),
 						# JHSHIN, apply Post-LN to implement Peri-LN.
                         linear_proj=backend.row_parallel_linear(),
-                        post_layernorm=backend.layer_norm() if use_post_layernorm else IdentityOp,
+                        post_attn_layernorm=backend.layer_norm() if use_post_layernorm else IdentityOp,
                         q_layernorm=IdentityOp,
                         kv_layernorm=IdentityOp,
                     ),
@@ -886,9 +886,9 @@ def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
                     submodules=SelfAttentionSubmodules(
                         linear_qkv=backend.column_parallel_layer_norm_linear(),
                         core_attention=backend.core_attention(),
-						# JHSHIN, MHA 버전에서도 Peri-LN을 적용
                         linear_proj=backend.row_parallel_linear(),
-                        post_layernorm=backend.layer_norm() if use_post_layernorm else IdentityOp,
+                        # FIXME: MHA 버전을 위해, SelfAttentionSubmodules도 수정 필요함.
+                        post_attn_layernorm=backend.layer_norm() if use_post_layernorm else IdentityOp,
                         q_layernorm=(
                             L2Norm if qk_l2_norm else (qk_norm if qk_layernorm else IdentityOp)
                         ),
