@@ -1,6 +1,10 @@
 import warnings
-from typing import Optional, Union
+from typing import NoReturn, Optional, Union, Tuple
+from functools import lru_cache
 
+import torch
+from torch import Tensor
+from megatron.core import parallel_state, tensor_parallel
 from megatron.core.fusions.fused_bias_dropout import get_bias_dropout_add
 from megatron.core.models.backends import BackendSpecProvider, LocalSpecProvider
 from megatron.core.models.gpt.moe_module_specs import get_moe_module_spec_for_backend
@@ -34,6 +38,8 @@ from megatron.core.transformer.multi_latent_attention import MultiLatentAttentio
 from megatron.core.models.common.embeddings import (
     RotaryEmbedding,
     YarnRotaryEmbedding,
+    _yarn_get_mscale,
+    apply_rotary_pos_emb,
 )
 from megatron.core.process_groups_config import ModelCommProcessGroups
 from megatron.core.tensor_parallel.layers import ColumnParallelLinear
@@ -70,7 +76,7 @@ except ImportError:
 try:
     import transformer_engine as te  # pylint: disable=unused-import
 
-    from megatron.core.extensions.transformer_engine import TEFusedMLP, TENorm, TERowParallelLinear,
+    from megatron.core.extensions.transformer_engine import TEFusedMLP, TENorm, TERowParallelLinear
     from megatron.core.extensions.transformer_engine_spec_provider import TESpecProvider
 
     HAVE_TE = True
@@ -117,11 +123,16 @@ class LocalGlobalRotaryEmbedding(RotaryEmbedding):
 
     def __init__(
         self,
+        kv_channels: int,
+        rotary_percent: float = 1.0,
+        rotary_interleaved: bool = False,
+        seq_len_interpolation_factor: float = None,
         rotary_base: int = 10000,
         rotary_base_global: int = 1_000_000,            # ADDED
         rope_scaling: bool = False,
-        rope_scaling_factor: float = 8.0,               # 주의; 1단계 사전학습 때에는 scaling factor를 1.0으로 세팅해야 한다. arXiv:2306.15595
-        **kwargs,
+        rope_scaling_factor: float = 8.0,
+        use_cpu_initialization: bool = False,
+        cp_group: Optional[torch.distributed.ProcessGroup] = None,
     ) -> None:
         # The rope scaling in RotaryEmbedding is not linear scaling,
         # so this flag must be off. Will calculate linear scaling below.
@@ -129,9 +140,14 @@ class LocalGlobalRotaryEmbedding(RotaryEmbedding):
 
         # Get inv_freq for global attention layers
         super().__init__(
-            rope_scaling=rope_scaling,
+            kv_channels, rotary_percent,
+            rotary_interleaved=False,
+            seq_len_interpolation_factor=seq_len_interpolation_factor,
             rotary_base=rotary_base_global,
-            **kwargs,
+            rope_scaling=False,
+            rope_scaling_factor=1.0,
+            use_cpu_initialization=use_cpu_initialization,
+            cp_group=cp_group,
         )
         # 여기서 scaling factor로 inv_freq를 수정한다. 주의: 1단계 사전학습에서는 scaling_factor를 1.0으로 해야 한다.
         # 3단계 길이를 보상하는 500B 토큰 학습 단계 때 scaling factor를 8로 수정하여 학습해야 함.
@@ -139,9 +155,14 @@ class LocalGlobalRotaryEmbedding(RotaryEmbedding):
 
         # Setup Rotary Embedding for local attentions
         self.rope_local = RotaryEmbedding(
-            rope_scaling=rope_scaling,
+            kv_channels, rotary_percent,
+            rope_scaling=False,
+            rotary_interleaved=False,
+            seq_len_interpolation_factor=seq_len_interpolation_factor,
             rotary_base=rotary_base,
-            **kwargs,
+            rope_scaling_factor=1.0,
+            use_cpu_initialization=use_cpu_initialization,
+            cp_group=cp_group,
         )
 
     @lru_cache(maxsize=32)
@@ -160,28 +181,45 @@ class LocalGlobalYarnRotaryEmbedding(YarnRotaryEmbedding):
 
     def __init__(
         self,
+        kv_channels: int,
+        rotary_percent: float = 1.0,
+        rotary_interleaved: bool = False,
+        seq_len_interpolation_factor: Optional[float] = None,
         rotary_base: float = 10000.0,
-        rotary_base_global: float = 1000000.0,
+        rotary_base_global: float = 1_000_000.0,
+        use_cpu_initialization: bool = False,
         scaling_factor: float = 1.0,
         original_max_position_embeddings: int = 4096,
-        **kwargs,
+        beta_fast: float = 32.0,
+        beta_slow: float = 1.0,
+        mscale: float = 1.0,
+        mscale_all_dim: float = 0.0,
+        cp_group: Optional[torch.distributed.ProcessGroup] = None,
     ):
         # Get inv_freq for global attention layers
         super().__init__(
+            kv_channels,
+            rotary_percent=rotary_percent, rotary_interleaved=False,
+            seq_len_interpolation_factor=seq_len_interpolation_factor,
             rotary_base=rotary_base_global,
             scaling_factor=scaling_factor,
             original_max_position_embeddings=original_max_position_embeddings,
-            **kwargs,
+            beta_fast=beta_fast, beta_slow=beta_slow, mscale=mscale, mscale_all_dim=mscale_all_dim,
+            cp_group=cp_group,
         )
         # CHECKME: YaRN의 특성상 여기서 다시 수정하면 X
         #self.inv_freq /= scaling_factor
 
         # Setup Rotary Embedding for local attentions
         self.rope_local = YarnRotaryEmbedding(
+            kv_channels,
+            rotary_percent=rotary_percent, rotary_interleaved=False,
+            seq_len_interpolation_factor=seq_len_interpolation_factor,
             rotary_base=rotary_base,
             scaling_factor=scaling_factor,
             original_max_position_embeddings=original_max_position_embeddings,
-            **kwargs,
+            beta_fast=beta_fast, beta_slow=beta_slow, mscale=mscale, mscale_all_dim=mscale_all_dim,
+            cp_group=cp_group,
         )
 
     @lru_cache(maxsize=32)
@@ -208,7 +246,9 @@ class LocalGlobalMultiLatentAttention(MultiLatentAttention):
     ) -> None:
         submodules.post_layernorm = TENorm
         super().__init__(config=config, submodules=submodules, layer_number=layer_number,
-                         attn_mask_type=attn_mask_type, cp_comm_type=cp_comm_type,
+                         attn_mask_type=attn_mask_type,
+                         attention_type=attention_type,
+                         cp_comm_type=cp_comm_type,
                          model_comm_pgs=model_comm_pgs)
 
         # 앞에서 먼저 기본 방법으로 초기화하고, 모듈을 덮어 쓰는 방식으로 처리함.

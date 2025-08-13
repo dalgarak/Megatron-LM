@@ -164,11 +164,13 @@ class TransformerConfig(ModelParallelConfig):
     first half and second half (LLaMa style). Default to False."""
 
     window_size: Optional[Tuple[int, int]] = (512, 0)
+    #window_size: Optional[Tuple[int, int]] = None
     """If not None, then will use sliding window attention. The size of the window is specified by
     the numbers inside the tuple; -1 is special value meaning "infinite window size". 
     JHSHIN: FIXME; 512로 변경 필요."""
 
     interleaved_attn_pattern: Optional[Tuple[int, int]] = (5, 1)
+    #interleaved_attn_pattern: Optional[Tuple[int, int]] = (0, 0)
     """JHSHIN: WBL 100B MoE를 위한 Local-Global Switching Attention을 위한 설정. (local, global)로
     구성하면 되고, 6의 배수이면 (5, 1)로 구성하면 된다."""
 

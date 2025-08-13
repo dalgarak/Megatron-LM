@@ -37,13 +37,13 @@ DISTRIBUTED_ARGS=(
 MODEL_ARGS=(
     --use-mcore-models
     --disable-bias-linear
-    --seq-length 1024 
+    --seq-length 4096
     --max-position-embeddings 4096
-    --num-layers 8
+    --num-layers 48
     --position-embedding-type none
-    --hidden-size 3072
+    --hidden-size 4096 
     --ffn-hidden-size 18432 
-    --num-attention-heads 24
+    --num-attention-heads 32
     --init-method-std 0.0134
     --attention-dropout 0.0
     --hidden-dropout 0.0
@@ -81,7 +81,7 @@ MLA_ARGS=(
 #    --moe-router-num-groups 4 \
 MOE_ARGS=(
     --num-experts 128 \
-    --moe-layer-freq '([0]*3+[1]*5)' \
+    --moe-layer-freq '([0]*3+[1]*45)' \
     --moe-ffn-hidden-size 2048	\
     --moe-shared-expert-intermediate-size 2048 \
     --moe-shared-expert-overlap \
@@ -112,7 +112,7 @@ DATA_ARGS=(
 #    --no-gradient-accumulation-fusion
 TRAINING_ARGS=(
     --micro-batch-size 1
-    --global-batch-size 256
+    --global-batch-size 240 
     --lr 2e-4
     --train-iters 500000
     --lr-decay-iters 320000
@@ -156,9 +156,10 @@ FP8_ARGS=(
 #    --use-precision-aware-optimizer
 #    --recompute-activations
 MODEL_PARALLEL_ARGS=(
-    --tensor-model-parallel-size 1
+    --tensor-model-parallel-size 4
     --pipeline-model-parallel-size 4
-    --expert-model-parallel-size 2
+    --expert-model-parallel-size 4
+    --context-parallel-size 1
     --use-distributed-optimizer
     --sequence-parallel
     --cp-comm-type 'p2p'
@@ -195,8 +196,8 @@ if [ -n "${WANDB_API_KEY}" ]; then
 fi
 
 
-#WORLD_SIZE=8 python -u report_theoretical_memory.py \
-torchrun ${DISTRIBUTED_ARGS[@]} pretrain_gpt_for_wbl.py \
+#torchrun ${DISTRIBUTED_ARGS[@]} pretrain_gpt.py \
+WORLD_SIZE=960 python -u report_theoretical_memory.py \
     ${MODEL_ARGS[@]} \
     ${MLA_ARGS[@]} \
     ${DATA_ARGS[@]} \

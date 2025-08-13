@@ -1,6 +1,7 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
 
 import dataclasses
+import copy
 import io
 import os
 import pickle
@@ -1001,14 +1002,14 @@ class TEDotProductAttentionSwitchingLocalGlobal(TEDotProductAttention):
 		# JHSHIN, NOTICE: 추가 설정 필요 - config.interleaved_attn_pattern이 정의되어 있어야 함
         if _is_local_attn_layer(layer_number, config.interleaved_attn_pattern):
             # local attention, (q, k)
-            config.window_size = (config.window_size, 0)
+            # 이미 tuple로 들어가기 때문에 그대로 전달하면 되지만, dewrapping 후 호출.
+            config.window_size = (config.window_size[0], 0)
         else:
             # global attention
             config.window_size = None
 
-        # The VL model calculates mask manually
-        if config.is_vision_language:
-            attn_mask_type = AttnMaskType.arbitrary
+        # Gemma3과 같은 vision-language 모델에서는 attn_mask_type을 AttnMaskType.arbitrary로 수정 필요.
+        # 우리는 필요없다.
 
         super().__init__(
             config=config,

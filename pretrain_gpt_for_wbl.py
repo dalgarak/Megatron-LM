@@ -188,6 +188,8 @@ def model_provider(
             mtp_block_spec = get_gpt_mtp_block_spec(
                 config, transformer_layer_spec_for_mtp, use_transformer_engine=use_te, vp_stage=vp_stage
             )
+        
+        print_rank_0(transformer_layer_spec)
 
         model = GPTModel(
             config=config,
@@ -206,6 +208,8 @@ def model_provider(
             mtp_block_spec=mtp_block_spec,
             vp_stage=vp_stage,
         )
+
+        print_rank_0(model)
 
     return model
 

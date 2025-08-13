@@ -41,7 +41,7 @@ MODEL_ARGS=(
     --position-embedding-type none
     --hidden-size 1024
     --ffn-hidden-size 4096 
-    --num-attention-heads 32
+    --num-attention-heads 24
     --init-method-std 0.0134
     --attention-dropout 0.0
     --hidden-dropout 0.0
@@ -181,7 +181,7 @@ if [ -n "${WANDB_API_KEY}" ]; then
 fi
 
 
-torchrun ${DISTRIBUTED_ARGS[@]} pretrain_gpt.py \
+torchrun ${DISTRIBUTED_ARGS[@]} pretrain_gpt_for_wbl.py \
     ${MODEL_ARGS[@]} \
     ${MLA_ARGS[@]} \
     ${DATA_ARGS[@]} \

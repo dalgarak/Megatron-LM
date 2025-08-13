@@ -152,7 +152,7 @@ if [ -n "${WANDB_API_KEY}" ]; then
 fi
 
 
-torchrun ${DISTRIBUTED_ARGS[@]} pretrain_gpt.py \
+torchrun ${DISTRIBUTED_ARGS[@]} pretrain_gpt_for_wbl.py \
     ${MODEL_ARGS[@]} \
     ${MLA_ARGS[@]} \
     ${MOE_ARGS[@]} \
