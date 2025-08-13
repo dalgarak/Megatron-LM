@@ -5,4 +5,4 @@
 #NVTE_FLASH_ATTN=1 ./calc_test_wbl_100b_test_250809_fp8.sh ./wbl-100b-half_layer-moe-test-fp8/ ~/egpt-models/eagle-3b-preview/ ../hftb_finemath_4plus_egpt-3b-tokenizer-megatron_text_document
 
 #NVTE_DEBUG=0 NVTE_DEBUG_LEVEL=0 NVTE_FLASH_ATTN=1 ./train_wbl_test2_dense_no_sliding_window.sh ./wbl-d2048-l24-attnh16-no-sliding/ ~/egpt-models/eagle-3b-preview/ ../hftb_finemath_4plus_egpt-3b-tokenizer-megatron_text_document
-NVTE_DEBUG=0 NVTE_DEBUG_LEVEL=0 NVTE_FLASH_ATTN=1 ./train_wbl_test2_dense_no_sliding_window.sh ./wbl-d2048-l24-attnh16-with-sliding/ ~/egpt-models/eagle-3b-preview/ ../hftb_finemath_4plus_egpt-3b-tokenizer-megatron_text_document
+NVTE_DEBUG=0 NVTE_DEBUG_LEVEL=0 NVTE_FLASH_ATTN=1 ./train_wbl_100b_dense_as_one_expert.sh ./wbl-dense-48l-3072d-mlp_intrm1536_swa5n1-mla/ ~/egpt-models/eagle-3b-preview/ ../hftb_finemath_4plus_egpt-3b-tokenizer-megatron_text_document

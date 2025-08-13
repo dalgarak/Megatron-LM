@@ -391,7 +391,16 @@ class TransformerLayer(MegatronModule, BaseTransformerLayer):
         if hasattr(self.mlp, 'set_layer_number'):
             self.mlp.set_layer_number(self.layer_number)
 
+        # [Module 10: JHSHIN Added, Post-Part of Peri-LN for MLPs]
+        self.post_mlp_layernorm = build_module(
+            submodules.post_mlp_layernorm,
+            config=self.config,
+            hidden_size=self.config.hidden_size,
+            eps=self.config.layernorm_epsilon,
+        )
+
         # [Module 9: BiasDropoutFusion]
+        # BiasDropoutFusion이면 Residual adding이 여기에 들어가기 때문에, Peri-LN을 위해서라면 앞에 들어가야 함.
         self.mlp_bda = build_module(submodules.mlp_bda)
 
         self.recompute_input_layernorm = False
@@ -404,7 +413,6 @@ class TransformerLayer(MegatronModule, BaseTransformerLayer):
                 if not isinstance(self.pre_mlp_layernorm, IdentityOp):
                     self.recompute_pre_mlp_layernorm = True
             if "mlp" in self.config.recompute_modules:
-
                 if not isinstance(self.mlp, MoELayer):
                     self.recompute_mlp = True
 
@@ -624,13 +632,21 @@ class TransformerLayer(MegatronModule, BaseTransformerLayer):
                 mlp_output_with_bias[0]
             )
         nvtx_range_pop(suffix="mlp")
+        
+        # JHSHIN added, post-ln to implement peri-ln structure.
+        # FIXME: post-mlp layernorm도 동일하게 recompute하게 수정할 필요가 있음.
+        nvtx_range_push(suffix="post_mlp_layernorm")
+        post_mlp_layernorm_output_with_bias = (self.post_mlp_layernorm(
+                mlp_output_with_bias[0]), mlp_output_with_bias[1])
+        nvtx_range_pop(suffix="post_mlp_layernorm")
 
         # TODO: could we move `bias_dropout_add_exec_handler` itself
         # inside the module provided in the `bias_dropout_add_spec` module?
         nvtx_range_push(suffix="mlp_bda")
         with self.bias_dropout_add_exec_handler():
             hidden_states = self.mlp_bda(self.training, self.config.bias_dropout_fusion)(
-                mlp_output_with_bias, residual, self.hidden_dropout
+                #mlp_output_with_bias, residual, self.hidden_dropout
+                post_mlp_layernorm_output_with_bias, residual, self.hidden_dropout
             )
         nvtx_range_pop(suffix="mlp_bda")
 
