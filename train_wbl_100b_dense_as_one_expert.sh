@@ -14,10 +14,9 @@ NODE_RANK=${RANK:-"0"}
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 # 인자 순서, load, save checkpoint, tokenizer, data path
-LOAD_PATH=$1
-CHECKPOINT_PATH=$2
-TOKENIZER_MODEL=$3
-DATA_PATH=$4
+CHECKPOINT_PATH=$1
+TOKENIZER_MODEL=$2
+DATA_PATH=$3
 
 DISTRIBUTED_ARGS=(
     --nproc_per_node $GPUS_PER_NODE
@@ -38,7 +37,7 @@ MODEL_ARGS=(
     --position-embedding-type none
     --hidden-size 3072 
     # upcycling을 위해, shared를 제외한 2048 * 8을 적용.
-    --ffn-hidden-size 16384
+    --ffn-hidden-size 2048 
     --num-attention-heads 24 
     --init-method-std 0.0134
     --attention-dropout 0.0
@@ -129,7 +128,6 @@ FP8_ARGS=(
 #    --log-progress \
 #    --log-params-norm \
 # FIXME: upcycling 활성화하려면 아래의 load parameter를 사용.
-#    --load $LOAD_PATH \
 #    --load $CHECKPOINT_PATH \
 # 25.08.16 upcycling은 checkpoint loading 하는 파트 마저 수정 필요. 아직 잘 작동하지 않아서 수정할게 많다.
 LOGGING_ARGS=(
