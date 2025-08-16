@@ -47,7 +47,6 @@ import megatron.legacy.model  # isort: skip
 
 # JHSHIN
 from megatron.core.models.wbl_moe_gpt.model import (
-    get_wbl_moe_module_spec_for_backend,
     get_wbl_moe_gpt_decoder_block_spec,
     get_wbl_moe_gpt_layer_with_transformer_engine_spec,
 )
@@ -65,6 +64,22 @@ except ImportError:
     has_nvidia_modelopt = False
 
 stimer = StragglerDetector()
+
+
+def print_module_params(model, print_func):
+    """
+    각 모듈별 파라미터 크기와 개수를 출력
+    """
+    print_func(f"{'Module':40s} {'Parameter Shape':30s} {'# Params':>10s}")
+    print_func("-" * 85)
+    total_params = 0
+    for name, param in model.named_parameters():
+        shape_str = str(list(param.shape))
+        num_params = param.numel()
+        print_func(f"{name:40s} {shape_str:30s} {num_params:10,d}")
+        total_params += num_params
+    print_func("-" * 85)
+    print_func(f"{'Total':40s} {'':30s} {total_params:10,d}")
 
 
 def _get_transformer_layer_spec(use_te, config):
@@ -210,6 +225,8 @@ def model_provider(
         )
 
         print_rank_0(model)
+
+        print_module_params(model, print_rank_0)
 
     return model
 

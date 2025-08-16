@@ -13,7 +13,6 @@ from megatron.core.extensions.transformer_engine import (
     TENorm,
     TERowParallelGroupedLinear,
     TERowParallelLinear,
-    TERowParallelLinearLayerNorm,                               # ADDED
     TEDotProductAttentionSwitchingLocalGlobal,                  # ADDED
 )
 from megatron.core.fusions.fused_layer_norm import FusedLayerNorm
@@ -38,10 +37,6 @@ class TESpecProvider(BackendSpecProvider):
     def row_parallel_linear(self) -> type:
         """Which row parallel linear module TE backend uses"""
         return TERowParallelLinear
-
-    def row_parallel_linear_layer_norm(self) -> type:
-        """Which row parallel linear module TE backend uses, w/Post-LN"""
-        return TERowParallelLinearLayerNorm
 
     def fuse_layernorm_and_linear(self) -> bool:
         """TE backend chooses a single module for layernorm and linear"""
@@ -68,7 +63,6 @@ class TESpecProvider(BackendSpecProvider):
         """JHSHIN: Which module to use for attention, with Local Sliding Window-Global Attention Switching"""
         return TEDotProductAttentionSwitchingLocalGlobal
 
-    # JHSHIN: add moe_use_post_layernorm argument.
     def grouped_mlp_modules(
         self, moe_use_grouped_gemm: bool, moe_use_legacy_grouped_gemm: bool, moe_use_post_layernorm: bool=True,
     ) -> Tuple[type, Optional[MLPSubmodules]]:
@@ -79,8 +73,7 @@ class TESpecProvider(BackendSpecProvider):
             and not moe_use_legacy_grouped_gemm
         ):
             return TEGroupedMLP, MLPSubmodules(
-                #linear_fc1=TEColumnParallelGroupedLinear, linear_fc2=TERowParallelGroupedLinear
-                linear_fc1=TEColumnParallelGroupedLinear, linear_fc2=TERowParallelGroupedLinear,
+                linear_fc1=TEColumnParallelGroupedLinear, linear_fc2=TERowParallelGroupedLinear
             )
         elif moe_use_grouped_gemm:
             warnings.warn(
@@ -96,10 +89,8 @@ class TESpecProvider(BackendSpecProvider):
                     "Use local linear implementation instead."
                 )
                 return SequentialMLP, MLPSubmodules(
-                    #linear_fc1=ColumnParallelLinear, linear_fc2=RowParallelLinear
-                    linear_fc1=ColumnParallelLinear, linear_fc2=RowParallelLinear,
+                    linear_fc1=ColumnParallelLinear, linear_fc2=RowParallelLinear
                 )
             return SequentialMLP, MLPSubmodules(
-                #linear_fc1=TEColumnParallelLinear, linear_fc2=TERowParallelLinear
-                linear_fc1=TEColumnParallelLinear, linear_fc2=TERowParallelLinear,
+                linear_fc1=TEColumnParallelLinear, linear_fc2=TERowParallelLinear
             )

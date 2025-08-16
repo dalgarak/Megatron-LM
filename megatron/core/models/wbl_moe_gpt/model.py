@@ -8,10 +8,13 @@ from megatron.core import parallel_state, tensor_parallel
 from megatron.core.fusions.fused_bias_dropout import get_bias_dropout_add
 from megatron.core.models.backends import BackendSpecProvider, LocalSpecProvider
 from megatron.core.models.gpt.moe_module_specs import get_moe_module_spec_for_backend
+from megatron.core.models.gpt.gpt_layer_specs import get_mlp_module_spec_for_backend
 from megatron.core.transformer.attention import SelfAttention, SelfAttentionSubmodules
 from megatron.core.transformer.enums import AttnMaskType, LayerType
 from megatron.core.transformer.identity_op import IdentityOp
 from megatron.core.transformer.mlp import MLP, MLPSubmodules
+from megatron.core.transformer.moe.shared_experts import SharedExpertMLP
+from megatron.core.transformer.moe.moe_layer import MoELayer, MoESubmodules
 from megatron.core.transformer.multi_latent_attention import (
     MLASelfAttention,
     MLASelfAttentionSubmodules,
@@ -709,75 +712,6 @@ class LocalGlobalMLASelfAttention(LocalGlobalMultiLatentAttention):
         self.linear_proj.backward_dw()
 
 
-
-# megatron.core.models.gpt.moe_module_specs.get_moe_module_spec_for_backend() 의 수정버전
-def get_wbl_moe_module_spec_for_backend(
-    backend: BackendSpecProvider,
-    num_experts: Optional[int] = None,
-    moe_grouped_gemm: Optional[bool] = False,
-    moe_use_legacy_grouped_gemm: Optional[bool] = False,
-) -> ModuleSpec:
-    """Helper function to get module spec for MoE"""
-    assert num_experts is not None
-
-    linear_fc1 = backend.column_parallel_linear()
-	# JHSHIN, Post-LN 사용
-    linear_fc2 = backend.row_parallel_linear_layer_norm()
-
-    mlp = MLPSubmodules(linear_fc1=linear_fc1, linear_fc2=linear_fc2)
-
-    expert_module, expert_submodule = backend.grouped_mlp_modules(
-        moe_grouped_gemm is not None and moe_grouped_gemm,
-        moe_use_legacy_grouped_gemm is not None and moe_use_legacy_grouped_gemm,
-    )
-
-    experts = ModuleSpec(module=expert_module, submodules=expert_submodule)
-
-    # shared experts spec
-    shared_experts = ModuleSpec(module=SharedExpertMLP, params={"gate": False}, submodules=mlp)
-
-    # MoE module spec
-    moe_module_spec = ModuleSpec(
-        module=MoELayer, submodules=MoESubmodules(experts=experts, shared_experts=shared_experts)
-    )
-    return moe_module_spec
-
-
-# get_mlp_module_spec_for_backend()의 수정 버전.
-def get_wbl_moe_mlp_module_spec_for_backend(
-    backend: BackendSpecProvider,
-    num_experts: Optional[int] = None,
-    moe_grouped_gemm: Optional[bool] = False,
-    moe_use_legacy_grouped_gemm: Optional[bool] = False,
-    use_te_op_fuser: Optional[bool] = False,
-) -> ModuleSpec:
-    """Helper function to get module spec for MLP/MoE"""
-
-	# Post-LN을 사용하도록 수정
-    linear_fc2 = backend.row_parallel_linear()
-
-    if num_experts is None:
-        # Dense MLP w/ or w/o TE modules.
-        if use_te_op_fuser:
-            return ModuleSpec(module=TEFusedMLP)
-        elif backend.fuse_layernorm_and_linear():
-            linear_fc1 = backend.column_parallel_layer_norm_linear()
-            assert linear_fc1 is not None
-        else:
-            linear_fc1 = backend.column_parallel_linear()
-        return ModuleSpec(
-            module=MLP, submodules=MLPSubmodules(linear_fc1=linear_fc1, linear_fc2=linear_fc2)
-        )
-    else:
-        # Mixture of experts with modules in megatron core.
-        return get_wbl_moe_module_spec_for_backend(
-            backend=backend,
-            num_experts=num_experts,
-            moe_grouped_gemm=moe_grouped_gemm,
-            moe_use_legacy_grouped_gemm=moe_use_legacy_grouped_gemm,
-        )
-
-
 # get_gpt_layer_with_transformer_engine_spec()의 수정 버전. 
 def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
     num_experts: Optional[int] = None,
@@ -824,7 +758,7 @@ def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
         backend = TESpecProvider()
 
 	# JHSHIN, modified
-    mlp = get_wbl_moe_mlp_module_spec_for_backend(
+    mlp = get_mlp_module_spec_for_backend(
         backend=backend,
         num_experts=num_experts,
         moe_grouped_gemm=moe_grouped_gemm,
@@ -869,8 +803,10 @@ def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
                     ),
                 ),
                 self_attn_bda=get_bias_dropout_add,
+                # MoE에서는 Post만 들어가고, Dense에서는 Pre만 들어가기 때문에...
                 pre_mlp_layernorm=backend.layer_norm() if num_experts else IdentityOp,
                 mlp=mlp,
+                # Peri-LN 구조 공통화를 위해 상관없이 Post MLP Layer Norm을 붙인다.
                 post_mlp_layernorm=backend.layer_norm() if use_post_layernorm else IdentityOp,
                 mlp_bda=get_bias_dropout_add,
             ),

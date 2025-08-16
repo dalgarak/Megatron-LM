@@ -1272,6 +1272,8 @@ def setup_model_and_optimizer(
         args.num_experts = None
         args.expert_model_parallel_size = 1
         args.ffn_hidden_size = moe_ffn_hidden_size * args.moe_upcycling_granularity 
+        # JHSHIN FIXED: 이 때는 moe_ffn_hidden_size도 None으로 만들어놓는다.
+        args.moe_ffn_hidden_size = None
 
         # get dense model
         dense_model_for_upcycling = get_model(model_provider_func, model_type)
@@ -1281,15 +1283,32 @@ def setup_model_and_optimizer(
         args.expert_model_parallel_size = expert_model_parallel_size
         args.ffn_hidden_size = moe_ffn_hidden_size
 
+        # JHSHIN: create temporary optimizer to load a dense model correctly
+        '''
+        optimizer_for_dense = get_megatron_optimizer(
+            config,
+            dense_model_for_upcycling,
+            no_wd_decay_cond,
+            scale_lr_cond,
+            lr_mult,
+            use_gloo_process_groups=args.enable_gloo_process_groups,
+            # If the user is asking for a non-zero embedding init std, skip weight decay for embeddings
+            #  to avoid embeddings from shrinking to zero as recommended in https://arxiv.org/abs/2312.16903
+            default_skip_embedding_weight_decay=args.embedding_init_method_std is not None,
+        )
+        opt_param_scheduler_for_dense = get_optimizer_param_scheduler(optimizer_for_dense)
+        '''
+
         # execute upcycling
         _, args.num_floating_point_operations_so_far = upcycling_utils.load_and_upcycle_model(
             load_checkpoint,
             unwrapped_model,
             dense_model_for_upcycling,
+            # JHSHIN: fix load_checkpoint function calling
+            load_args=(dense_model_for_upcycling, None, None),
             load_kwargs={
-                'model': dense_model_for_upcycling,
-                'optimizer': None,
-                'opt_param_scheduler': None,
+                'checkpointing_context': checkpointing_context,
+                'skip_load_to_model_and_opt': HAVE_FSDP2 and getattr(args, "use_torch_fsdp2", False) and args.ckpt_format == "torch_dist",
             },
         )
         args.iteration = 1

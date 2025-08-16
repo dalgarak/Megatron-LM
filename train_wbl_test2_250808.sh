@@ -55,7 +55,7 @@ MLA_ARGS=(
     --qk-head-dim 96
     --qk-pos-emb-head-dim 32
     --v-head-dim 128
-    --rotary-scaling-factor 40
+    --rotary-scaling-factor 1.0
     --normalization RMSNorm
     --rope-type rope
     --rotary-base 10000

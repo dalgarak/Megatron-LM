@@ -703,53 +703,6 @@ class TERowParallelLinear(TELinear):
             super().backward_dw()
 
 
-# JHSHIN, modified
-# copied from nemo.collections.nlp.models.language_modeling.megatron.gemma2.gemma2_modules
-class TERowParallelLinearLayerNorm(TERowParallelLinear):
-    """Modified From TERowParallelLinear with an additional Post-LN."""
-
-    def __init__(
-        self,
-        input_size: int,
-        output_size: int,
-        *,
-        config: TransformerConfig,
-        init_method: Callable,
-        bias: bool,
-        input_is_parallel: bool,
-        skip_bias_add: bool,
-        is_expert: bool,
-        tp_comm_buffer_name: Optional[str] = None,
-        tp_group: Optional[torch.distributed.ProcessGroup] = None,
-    ):
-        super().__init__(
-            input_size,
-            output_size,
-            config=config,
-            init_method=init_method,
-            bias=bias,
-            input_is_parallel=input_is_parallel,
-            skip_bias_add=skip_bias_add,
-            is_expert=is_expert,
-            tp_comm_buffer_name=tp_comm_buffer_name,
-            tp_group=tp_group,
-        )
-        self.post_layernorm = TENorm(config, output_size)
-
-    def forward(self, x):
-        """Forward with additional Post LN on output"""
-        output, bias = super().forward(x)
-        return self.post_layernorm(output), bias
-
-    def sharded_state_dict(self, prefix="", sharded_offsets=(), metadata=None):
-        """Sharding along axis 1, bias not sharded"""
-        state_dict = self.state_dict(prefix="", keep_vars=True)
-        return make_sharded_tensors_for_checkpoint(
-                #state_dict, prefix, {"weight": 1, "post_layernorm.weight": 0}, sharded_offsets
-                state_dict, prefix, {"weight": 1,}, sharded_offsets
-        )
-
-
 class TEDotProductAttention(te.pytorch.DotProductAttention):
     """Wrapper for the Transformer-Engine's `DotProductAttention` layer
     that also has "flash attention" enabled.
