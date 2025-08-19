@@ -62,6 +62,7 @@ MLA_ARGS=(
     --rope-type rope
     --rotary-base 10000
     --rotary-base-global 1000000
+    --qk-layernorm
 )
 
 # MOE 제거 
