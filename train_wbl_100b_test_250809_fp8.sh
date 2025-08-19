@@ -14,10 +14,9 @@ NODE_RANK=${RANK:-"0"}
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 # 인자 순서, load, save checkpoint, tokenizer, data path
-LOAD_PATH=$1
-CHECKPOINT_PATH=$2
-TOKENIZER_MODEL=$3
-DATA_PATH=$4
+CHECKPOINT_PATH=$1
+TOKENIZER_MODEL=$2
+DATA_PATH=$3
 
 DISTRIBUTED_ARGS=(
     --nproc_per_node $GPUS_PER_NODE
@@ -50,7 +49,7 @@ MODEL_ARGS=(
 # --moe-ffn-hidden-size는 세팅하지 않는다. ffn-hidden-size를 따라감.
 #--moe-use-upcycling
 MOE_ARGS=(
-    --num-experts 8 \
+    --num-experts 128 \
     --moe-layer-freq '([0]*3+[1]*45)' \
     --moe-ffn-hidden-size 2048 
     --moe-shared-expert-intermediate-size 2048 \
@@ -84,6 +83,7 @@ MLA_ARGS=(
     --rope-type rope
     --rotary-base 10000
     --rotary-base-global 1000000
+    --qk-layernorm
 )
 
 # MOE 제거 
@@ -98,7 +98,7 @@ DATA_ARGS=(
 # 본 모델 형식에서 튜닝함. global-batch-size는 WORLD_SIZE * micro_batch_size의 배수여야 함. 즉, 8개 GPU면 3*8 = 24의 배수.
 TRAINING_ARGS=(
     --micro-batch-size 1
-    --global-batch-size 1032
+    --global-batch-size 1036
     --lr 2e-4
     --train-iters 500000
     --lr-decay-iters 320000
@@ -123,8 +123,9 @@ TRAINING_ARGS=(
 # --recompute-activations
 #    --tp-comm-overlap
 MODEL_PARALLEL_ARGS=(
-    --tensor-model-parallel-size 1
-    --pipeline-model-parallel-size 1
+    --tensor-model-parallel-size 4
+    --pipeline-model-parallel-size 6
+    --expert-model-parallel-size 2
     --context-parallel-size 1
     --use-distributed-optimizer
     --sequence-parallel
@@ -180,7 +181,7 @@ if [ -n "${WANDB_API_KEY}" ]; then
 fi
 
 #torchrun ${DISTRIBUTED_ARGS[@]} pretrain_gpt_for_wbl.py \
-WORLD_SIZE=8 python -u report_theoretical_memory.py \
+WORLD_SIZE=48 python -u report_theoretical_memory.py \
     ${MODEL_ARGS[@]} \
     ${MLA_ARGS[@]} \
     ${DATA_ARGS[@]} \
