@@ -929,7 +929,9 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
 
 
 # JHSHIN added
-def _is_local_attn_layer(layer_number: int, layer_pattern: Tuple[int, int],) -> bool:
+def _is_local_attn_layer(layer_number: int, layer_pattern: Optional[Tuple[int, int]],) -> bool:
+    if layer_pattern is None:
+        return False
     pattern_size = sum(layer_pattern)
     return layer_number % pattern_size != 0
 

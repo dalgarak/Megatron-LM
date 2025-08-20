@@ -62,3 +62,7 @@ python setup.py install
 see also
 
 https://github.com/NVIDIA/TransformerEngine/pull/1907
+
+## 트러블 슈팅
+WorkNCCL Watchdog Timeout이 뜨는 경우 ==> --distributed-timeout-minutes 60 으로 세팅. (일단 30부터 시작)
+데이터셋이 커질 수록, 색인하는데 시간이 많이 걸릴 수 있으므로 이 크기를 늘려놓아야 한다.

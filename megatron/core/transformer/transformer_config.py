@@ -170,14 +170,14 @@ class TransformerConfig(ModelParallelConfig):
     JHSHIN: FIXME; 512로 변경 필요."""
 
     interleaved_attn_pattern: Optional[Tuple[int, int]] = (5, 1)
-    #interleaved_attn_pattern: Optional[Tuple[int, int]] = (0, 0)
+    #interleaved_attn_pattern: Optional[Tuple[int, int]] = None
     """JHSHIN: WBL 100B MoE를 위한 Local-Global Switching Attention을 위한 설정. (local, global)로
     구성하면 되고, 6의 배수이면 (5, 1)로 구성하면 된다."""
 
     normalization: str = "LayerNorm"
     """Which norm to use for normalization layers, valid options are `LayerNorm` and `RMSNorm`."""
 
-    qk_layernorm: bool = False
+    qk_layernorm: bool = True
     """Whether to apply `normalization` type of normalization to the query and key embeddings."""
 
     test_mode: bool = False

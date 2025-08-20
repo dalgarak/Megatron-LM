@@ -2,8 +2,15 @@
 
 # Runs Mixtral 8x7B model
 
+#export OMP_NUM_THREADS=1
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-#export UB_SKIPMC=1
+export NCCL_DEBUG=WARN
+export NCCL_P2P_LEVEL=NVL
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export UB_SKIPMC=1
+
+#export CUDA_VISIBLE_DEVICES=0,1
+#export CUDA_VISIBLE_DEVICES=6,7
 
 GPUS_PER_NODE=8
 # Change for multinode config
@@ -31,13 +38,13 @@ DISTRIBUTED_ARGS=(
 #  --max-position-embeddings 4096 이외의 값을 사용하면 경고가 나온다.
 MODEL_ARGS=(
     --disable-bias-linear
-    --seq-length 4096
+    --seq-length 32768
     --max-position-embeddings 32768
     --num-layers 48 
     --position-embedding-type none
     --hidden-size 3072 
     # upcycling을 위해, shared를 제외한 2048 * 8을 적용.
-    --ffn-hidden-size 2048 
+    --ffn-hidden-size 2048
     --num-attention-heads 24 
     --init-method-std 0.0134
     --attention-dropout 0.0
@@ -77,7 +84,7 @@ DATA_ARGS=(
 # 본 모델 형식에서 튜닝함. global-batch-size는 WORLD_SIZE * micro_batch_size의 배수여야 함. 즉, 8개 GPU면 3*8 = 24의 배수.
 TRAINING_ARGS=(
     --micro-batch-size 1
-    --global-batch-size 1032
+    --global-batch-size 128
     --lr 2e-4
     --train-iters 500000
     --lr-decay-iters 320000
@@ -101,13 +108,16 @@ TRAINING_ARGS=(
 # context-parallel과 expert-parallel 수는 동일하게 맞춰도 된다 (배수로 적용되지 X)
 # --recompute-activations
 #    --tp-comm-overlap
+#    --use-custom-fsdp
 MODEL_PARALLEL_ARGS=(
-    --tensor-model-parallel-size 1
-    --pipeline-model-parallel-size 1
+    --tensor-model-parallel-size 2 
+    --pipeline-model-parallel-size 4
     --context-parallel-size 1
     --use-distributed-optimizer
     --sequence-parallel
+    --tp-comm-overlap
     --cp-comm-type 'p2p'
+    --distributed-timeout-minutes 30
 )
 
 #    --fp8-recipe 'delayed'

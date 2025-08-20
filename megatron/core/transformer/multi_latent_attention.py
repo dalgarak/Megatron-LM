@@ -242,6 +242,11 @@ class MultiLatentAttention(Attention):
                 attn_mask_type=attn_mask_type,
             )
 
+        # FIXME: JHSHIN; S_max를 구해놓아야 함.
+        #with torch.no_grad():
+        #    alt_scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(self.key_hidden_size)
+        #    s_max = torch.max(alt_scores).item()
+
         if packed_seq_params is not None and packed_seq_params.qkv_format == 'thd':
             # reshape to same output shape as unpacked case
             # (t, np, hn) -> (t, b=1, h=np*hn)
