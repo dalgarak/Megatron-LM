@@ -33,8 +33,13 @@ from megatron.core.utils import (
     is_te_min_version,
     is_torch_min_version,
 )
-from megatron.training.activations import squared_relu
-from megatron.training.utils import get_device_arch_version, update_use_dist_ckpt, print_rank_0
+from megatron.core.activations import squared_relu
+from megatron.training.utils import (
+    get_device_arch_version,
+    update_use_dist_ckpt,
+    print_rank_0,
+    warn_rank_0,
+)
 from megatron.core.msc_utils import MultiStorageClientFeature
 
 from megatron.core.quantization.utils import (
@@ -588,8 +593,11 @@ def validate_args(args, defaults={}):
 
         if args.fp8_param_gather and is_te_min_version("2.0.0"):
             args.fp8_param_gather = False
-            warnings.warn('FSDP2 FP8 param gather is not supported yet in TE 2.0, will fallback to bf16' \
-                          'all_gather instead, turning off fp8_param_gather')
+            warn_rank_0(
+                'FSDP2 FP8 param gather is not supported yet in TE 2.0, will fallback to bf16'
+                'all_gather instead, turning off fp8_param_gather',
+                args.rank,
+            )
 
     if args.overlap_param_gather_with_optimizer_step:
         assert args.use_distributed_optimizer, \
@@ -614,13 +622,19 @@ def validate_args(args, defaults={}):
     if args.fp8_param_gather:
         assert args.use_distributed_optimizer or args.use_torch_fsdp2 or not torch.is_grad_enabled(), \
             '--fp8-param-gather only supported with distributed optimizer, torch fsdp2, or inference mode'
+        if args.fp8_recipe == "mxfp8":
+            assert args.reuse_grad_buf_for_mxfp8_param_ag, \
+                "--fp8-param-gather with mxfp8 requires --reuse-grad-buf-for-mxfp8-param-ag"
 
     if args.use_custom_fsdp:
         assert args.use_distributed_optimizer, \
             '--use-custom-fsdp only supported with distributed optimizer'
 
         if args.data_parallel_sharding_strategy in ["optim_grads_params", "optim_grads"]:
-            warnings.warn('Please make sure your TransformerEngine support FSDP + gradient accumulation fusion')
+            warn_rank_0(
+                'Please make sure your TransformerEngine support FSDP + gradient accumulation fusion',
+                args.rank,
+            )
             assert args.gradient_accumulation_fusion is False, \
                 "optim_grads_params optim_grads are not supported with gradient accumulation fusion"
 
@@ -828,7 +842,10 @@ def validate_args(args, defaults={}):
     # sequence_parallelism is enabled.
     if args.tensor_model_parallel_size == 1:
         if args.sequence_parallel:
-            warnings.warn("Disabling sequence parallelism because tensor model parallelism is disabled")
+            warn_rank_0(
+                "Disabling sequence parallelism because tensor model parallelism is disabled",
+                args.rank,
+            )
         args.sequence_parallel = False
 
     if args.tp_comm_overlap:
@@ -841,19 +858,24 @@ def validate_args(args, defaults={}):
         # CUDA_DEVICE_MAX_CONNECTIONS requirement no longer exists since the Blackwell architecture
         if args.use_torch_fsdp2 or args.use_custom_fsdp:
             fsdp_impl = "Torch-FSDP2" if args.use_torch_fsdp2 else "Custom-FSDP"
-            warnings.warn(
+            warn_rank_0(
                 f"Using tensor model parallelism or context parallelism with {fsdp_impl} together. "
                 "Try not to using them together since they require different CUDA_MAX_CONNECTIONS "
                 "settings for best performance. sequence parallelism requires setting the "
                 f"environment variable CUDA_DEVICE_MAX_CONNECTIONS to 1 while {fsdp_impl} "
-                "requires not setting CUDA_DEVICE_MAX_CONNECTIONS=1 for better parallelization.")
+                "requires not setting CUDA_DEVICE_MAX_CONNECTIONS=1 for better parallelization.",
+                args.rank,
+            )
         elif args.overlap_moe_expert_parallel_comm:
-            warnings.warn("For Hopper and before, try not to use tensor model parallelism or context parallelism with overlap_moe_expert_parallel_comm. "
-                         "Using tensor/context model parallelism requires setting the environment "
-                         "variable CUDA_DEVICE_MAX_CONNECTIONS to 1 to maximize the performance. "
-                         "While overlap_moe_expert_parallel_comm requires setting a larger CUDA_DEVICE_MAX_CONNECTIONS "
-                         "for better parallelization. If you want to use both, you can set CUDA_DEVICE_MAX_CONNECTIONS to 1 or 32, "
-                         "which depends on which parallelization you want to prioritize.")
+            warn_rank_0(
+                "For Hopper and before, try not to use tensor model parallelism or context parallelism with overlap_moe_expert_parallel_comm. "
+                "Using tensor/context model parallelism requires setting the environment "
+                "variable CUDA_DEVICE_MAX_CONNECTIONS to 1 to maximize the performance. "
+                "While overlap_moe_expert_parallel_comm requires setting a larger CUDA_DEVICE_MAX_CONNECTIONS "
+                "for better parallelization. If you want to use both, you can set CUDA_DEVICE_MAX_CONNECTIONS to 1 or 32, "
+                "which depends on which parallelization you want to prioritize.",
+                args.rank,
+            )
         else:
             assert os.environ.get('CUDA_DEVICE_MAX_CONNECTIONS') == "1", \
                 "Using tensor model parallelism or context parallelism require setting the environment variable " \
@@ -939,6 +961,12 @@ def validate_args(args, defaults={}):
             "Number of experts should be a multiple of expert model parallel_size."
         assert not args.fp16, \
             "Expert parallelism is not supported with fp16 training."
+
+    # MoE router check
+    if isinstance(args.moe_router_load_balancing_type, list) and len(args.moe_router_load_balancing_type) == 1:
+        args.moe_router_load_balancing_type = args.moe_router_load_balancing_type[0]
+    if isinstance(args.moe_aux_loss_coeff, list) and len(args.moe_aux_loss_coeff) == 1:
+        args.moe_aux_loss_coeff = args.moe_aux_loss_coeff[0]
 
     # Distributed checkpointing checks
     if args.use_dist_ckpt and args.use_legacy_models:
@@ -1060,15 +1088,28 @@ def validate_args(args, defaults={}):
 
     if args.mtp_num_layers:
         assert not args.use_legacy_models, "The legacy Megatron models does not support Multi-Token Prediction (MTP)."
-        assert args.context_parallel_size == 1, "Multi-Token Prediction (MTP) is not supported with Context Parallelism."
         assert args.position_embedding_type == "rope" or args.position_embedding_type == "none", (
             f"Multi-Token Prediction (MTP) is not supported with {args.position_embedding_type} position embedding type."
             + f"The supported position embedding types are rope and none."
         )
 
     # CUDA Graphs
+    if args.enable_cuda_graph or args.external_cuda_graph:
+        assert (
+            not args.enable_cuda_graph or not args.external_cuda_graph
+        ), "enable_cuda_graph and external_cuda_graph cannot be enabled at the same time."
+        if args.transformer_impl == 'transformer_engine' and not args.te_rng_tracker:
+            args.te_rng_tracker = True
+            warn_rank_0("te_rng_tracker is not enabled, enabling it for CUDA graphs.", args.rank)
+
     if args.external_cuda_graph:
-        assert args.te_rng_tracker, "--te-rng-tracker must be enabled when using CUDA Graphs."
+        assert "expandable_segments:True" not in os.getenv("PYTORCH_CUDA_ALLOC_CONF", ""), (
+            "expandable_segments:True may not be safe when using CUDA Graphs with some specific parallel settings. "
+            "The training may crash with illegal memory access."
+        )
+        assert (
+            args.recompute_granularity != 'full'
+        ), 'recompute_granularity must not be full when CUDA Graphs are enabled.'
 
     # Print arguments.
     _print_args("arguments", args)
@@ -1893,6 +1934,8 @@ def _add_training_args(parser):
                        help='Disable bias and swiglu fusion, the fusion is '
                        'available only when using megatron-core.',
                        dest='bias_swiglu_fusion')
+    group.add_argument('--use-fused-weighted-squared-relu', action='store_true',
+                       help='Use fused weighted squared relu when using MoE.')
     group.add_argument('--no-bias-dropout-fusion', action='store_false',
                        help='Disable bias and dropout fusion.',
                        dest='bias_dropout_fusion')
@@ -2367,6 +2410,11 @@ def _add_distributed_args(parser):
                        'which is improving the performance of the overlapped computation.')
     group.add_argument('--use-sharp', action='store_true', 
                        help='Required to enable SHARP communication.')
+    group.add_argument('--sharp-enabled-group', type=str, default=None,
+                       choices=['dp', 'dp_replica'],
+                       help='IB SHARP can be enabled from only one communication group. '
+                       'By default, it is enabled from dp group. '
+                       'Available options: [dp, dp_replica]')
     group.add_argument('--use-custom-fsdp', action='store_true',
                        help='Use the Megatron FSDP code path in DDP.')
     group.add_argument('--init-model-with-meta-device', action='store_true')
@@ -2433,6 +2481,8 @@ def _add_distributed_args(parser):
 def _add_validation_args(parser):
     group = parser.add_argument_group(title='validation')
 
+    group.add_argument('--full-validation', action='store_true', help='If set, each time validation occurs it uses the full validation dataset(s). This currently only works for GPT datasets!')
+    group.add_argument('--multiple-validation-sets', action='store_true', help='If set, multiple datasets listed in the validation split are evaluated independently with a separate loss for each dataset in the list. This argument requires that no weights are included in the list')
     group.add_argument('--eval-iters', type=int, default=100,
                        help='Number of iterations to run for evaluation'
                        'validation/test for.')
@@ -2451,6 +2501,10 @@ def _add_tokenizer_args(parser):
     group = parser.add_argument_group(title='tokenizer')
     group.add_argument('--vocab-size', type=int, default=None,
                        help='Size of vocab before EOD or padding.')
+    group.add_argument('--padded-vocab-size', type=int, default=None,
+                       help='Vocabulary size of the model (padded to be divisible by '
+                       'tensor model parallel size). If not provided, it will be '
+                       'automatically calculated from vocab-size.')
     group.add_argument('--vocab-file', type=str, default=None,
                        help='Path to the vocab file.')
     group.add_argument('--merge-file', type=str, default=None,
@@ -2749,7 +2803,7 @@ def _add_moe_args(parser):
                        help='Load a checkpoint of a dense model, convert it into an MoE model, and save the converted model to the path specified by --save. '
                        'Upcycling is implemented on the top of distributed checkpointing, so it supports parallel modes different from the dense model.')
     # Router arguments
-    group.add_argument('--moe-router-load-balancing-type', type=str,
+    group.add_argument('--moe-router-load-balancing-type', nargs='+', type=str,
                        choices=['aux_loss', 'seq_aux_loss', 'sinkhorn', 'none'],
                        default='aux_loss',
                        help='Determines the load balancing strategy for the router. "aux_loss" corresponds to the load balancing loss used in GShard and SwitchTransformer; "seq_aux_loss" corresponds to the load balancing loss used in DeepSeekV2, which computes the loss for each individual sample; "sinkhorn" corresponds to the balancing algorithm used in S-BASE, and "none" implies no load balancing. The default is "aux_loss".')
@@ -2760,6 +2814,8 @@ def _add_moe_args(parser):
                             'Fp32/fp64 enhances numerical stability, especially with numerous experts. '
                             'The perf impact should be negligible when used with permute fusion. '
                             'None means no changes for dtype.')
+    group.add_argument('--moe-router-fusion', action='store_true',
+                       help='Enable fusion for MoE TopK routing and aux-loss computation. This is only supported in TransformerEngine 2.7.0 and above.')
     group.add_argument('--moe-router-score-function', type=str,
                        choices=['softmax', 'sigmoid'],
                        default='softmax',
@@ -2792,7 +2848,7 @@ def _add_moe_args(parser):
                        'dropless training with FP8 precision when num_local_experts > 1. This is a more '
                        'efficient way to pad for FP8 which eliminates the explicit padding in the '
                        'GroupedMLP layer.')
-    group.add_argument('--moe-aux-loss-coeff', type=float, default=0.0,
+    group.add_argument('--moe-aux-loss-coeff', type=float, nargs='+', default=0.0,
                        help='Scaling coefficient for the aux loss: a starting value of 1e-2 is recommended.')
     group.add_argument('--moe-z-loss-coeff', type=float, default=None,
                        help='Scaling coefficient for the z-loss: a starting value of 1e-3 is recommended.')
@@ -2849,6 +2905,8 @@ def _add_mla_args(parser):
                        help="Mscale for YaRN RoPE in multi-latent attention.")
     group.add_argument('--mscale-all-dim', type=float, default=0.0,
                        help="Mscale all dimensions for YaRN RoPE in multi-latent attention.")
+    group.add_argument('--cache-mla-latents', action='store_true', default=False,
+                       help="If set caches the mla down projected latents with mla flash decode.")
 
     return parser
 
