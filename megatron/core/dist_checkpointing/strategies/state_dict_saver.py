@@ -90,6 +90,7 @@ def save_state_dict_async_plan(
         cached_central_plan, cached_local_plan, validated_cache_reuse = cached_ckpt_structure
 
     rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+    # JHSHIN: FIXME: process_group을 다중 호스트를 위해 gloo로 변경하는게 좋을 듯 함
     dist_wrapper = _DistWrapper(process_group, True, coordinator_rank)
     if planner is None:
         planner = DefaultSavePlanner()
@@ -107,7 +108,9 @@ def save_state_dict_async_plan(
         # we have to reference `is_coordinator` args by name
         planner.set_up_planner(state_dict, is_coordinator=dist_wrapper.is_coordinator)
         storage_writer.set_up_storage_writer(dist_wrapper.is_coordinator)
+        # JHSHIN; OR이 되어야 하지 않나?
         if not validated_cache_reuse and local_plan is None:
+            logger.debug(f"rank: {rank}, in local_step(), create_local_plan() called.")
             local_plan = planner.create_local_plan()
         local_plan = storage_writer.prepare_local_plan(local_plan)
         return local_plan
@@ -132,13 +135,37 @@ def save_state_dict_async_plan(
     elif getattr(planner, 'can_run_decentralized_global_plan', False) and getattr(
         storage_writer, 'can_run_decentralized_global_plan', False
     ):
+
         local_plan = local_step()
         global_md_verify_reuse = verify_global_md_reuse(
             loaded_all_plans, local_plan, rank, dist_wrapper
         )
 
         if not loaded_all_plans or not global_md_verify_reuse:
+            """
+            JHSHIN
+            """
+            torch.distributed.barrier()
+            # ========================================================
+            import pickle, cloudpickle, traceback
+
+            def check_pickleable(obj):
+                try:
+                    pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
+                    return "pickle OK"
+                except Exception as e:
+                    tb = traceback.format_exc()
+                    try:
+                        cloudpickle.dumps(obj)
+                        return f"pickle FAIL, cloudpickle OK: {e}\n{tb}"
+                    except Exception as e2:
+                        return f"pickle & cloudpickle FAIL: {e2}\n{tb}"
+
+            logger.debug(f"[rank {rank}] local_plan -> {check_pickleable(local_plan)}")
+            # ========================================================
+            logger.debug(f"rank: {rank}, Wait gather_object;")
             all_local_plans = dist_wrapper.gather_object(local_plan)
+            logger.debug(f"rank: {rank}, gather_object success;")
             if dist_wrapper.is_coordinator:
                 _, global_metadata = planner.create_global_plan(all_local_plans)
                 global_metadata.all_local_plans = all_local_plans
@@ -149,6 +176,7 @@ def save_state_dict_async_plan(
         local_plan = storage_writer.prepare_decentralized_global_plan(local_plan)
         central_plan = local_plan
     else:
+        logger.debug(f"rank: {rank}, run centralized global plan, do reduce_scatter().")
         central_plan = dist_wrapper.reduce_scatter("plan", local_step, global_step)
     central_plan = planner.finish_plan(central_plan)
     end_plan = time()

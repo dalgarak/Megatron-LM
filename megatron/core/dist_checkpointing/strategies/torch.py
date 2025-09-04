@@ -5,6 +5,7 @@ import io
 import os
 import pickle
 import warnings
+import datetime
 from collections import ChainMap, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -745,6 +746,13 @@ class TorchDistSaveShardedStrategy(AsyncSaveShardedStrategy):
                 self.validated_cache_reuse,
             )
 
+        # JHSHIN, host-host gather_object()를 위해 None -> Gloo backend를 명시적으로 쓰도록 변경
+        world_size = torch.distributed.get_world_size()
+        gloo_pg = torch.distributed.new_group(
+            ranks=list(range(world_size)),
+            backend="gloo",
+            timeout=datetime.timedelta(seconds=1800))
+
         (
             save_state_dict_ret,
             self.cached_central_plan,
@@ -754,7 +762,8 @@ class TorchDistSaveShardedStrategy(AsyncSaveShardedStrategy):
         ) = save_state_dict_async_plan(
             pyt_state_dict,
             writer,
-            None,
+            #None,
+            gloo_pg,        # JHSHIN, None to gloo_pg.
             coordinator,
             planner=MCoreSavePlanner(
                 dedup_replicated_tensors=not self.keep_only_main_replica, flatten_state_dict=False
