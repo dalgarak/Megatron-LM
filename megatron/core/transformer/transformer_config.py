@@ -795,14 +795,22 @@ class TransformerConfig(ModelParallelConfig):
                 self.moe_expert_capacity_factor = None
             if isinstance(self.moe_router_load_balancing_type, list):
                 for load_balancing_type in self.moe_router_load_balancing_type:
-                    if load_balancing_type not in ["aux_loss", "seq_aux_loss", 
-                                                   "global_aux_loss", "none"]:
+                    if load_balancing_type not in [
+                        "aux_loss",
+                        "seq_aux_loss",
+                        "global_aux_loss",
+                        "none",
+                    ]:
                         raise ValueError(
                             "moe_expert_capacity_factor only works with aux_loss, "
                             "seq_aux_loss, global_aux_loss or none load balancing"
                         )
-            elif self.moe_router_load_balancing_type not in ["aux_loss", "seq_aux_loss", 
-                                                             "global_aux_loss", "none"]:
+            elif self.moe_router_load_balancing_type not in [
+                "aux_loss",
+                "seq_aux_loss",
+                "global_aux_loss",
+                "none",
+            ]:
                 raise ValueError(
                     "moe_expert_capacity_factor only works with aux_loss, "
                     "seq_aux_loss, global_aux_loss or none load balancing"

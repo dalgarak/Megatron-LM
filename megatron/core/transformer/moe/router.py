@@ -147,11 +147,20 @@ class TopKRouter(Router):
         if self.enable_expert_bias:
             self.register_buffer(
                 'local_tokens_per_expert',
-                torch.zeros(self.config.num_moe_experts, dtype=torch.float32),
+                torch.zeros(
+                    self.config.num_moe_experts,
+                    dtype=torch.float32,
+                    device=torch.cuda.current_device(),
+                ),
                 persistent=False,
             )
             self.register_buffer(
-                'expert_bias', torch.zeros(self.config.num_moe_experts, dtype=torch.float32)
+                'expert_bias',
+                torch.zeros(
+                    self.config.num_moe_experts,
+                    dtype=torch.float32,
+                    device=torch.cuda.current_device(),
+                ),
             )
         else:
             self.local_tokens_per_expert = None
@@ -161,10 +170,18 @@ class TopKRouter(Router):
         if self.get_aux_loss_coeff("global_aux_loss") > 0:
             self.register_buffer(
                 'global_tokens_per_expert',
-                torch.zeros(self.config.num_moe_experts, dtype=torch.float32),
+                torch.zeros(
+                    self.config.num_moe_experts,
+                    dtype=torch.float32,
+                    device=torch.cuda.current_device(),
+                ),
                 persistent=False,
             )
-            self.ga_steps = 0
+            self.register_buffer(
+                'ga_steps',
+                torch.tensor(0, dtype=torch.float32, device=torch.cuda.current_device()),
+                persistent=False,
+            )
         else:
             self.global_tokens_per_expert = None
             self.ga_steps = None
@@ -230,7 +247,7 @@ class TopKRouter(Router):
 
     def is_aux_loss_enabled(self) -> bool:
         """Check if the auxiliary loss is enabled."""
-        for aux_loss_type in ["aux_loss", "seq_aux_loss"]:
+        for aux_loss_type in ["aux_loss", "seq_aux_loss", "global_aux_loss"]:
             if self.get_aux_loss_coeff(aux_loss_type) > 0:
                 return True
         return False
@@ -349,6 +366,7 @@ class TopKRouter(Router):
             topk=self.topk,
             num_experts=self.config.num_moe_experts,
             moe_aux_loss_coeff=global_aux_loss_coeff,
+            fused=self.config.moe_router_fusion,
         )
         probs = self.attach_and_log_load_balancing_loss(
             probs,
@@ -521,7 +539,7 @@ class TopKRouter(Router):
         """Reset the global aux loss tracker."""
         if self.global_tokens_per_expert is not None:
             self.global_tokens_per_expert.zero_()
-            self.ga_steps = 0
+            self.ga_steps.zero_()
 
     def forward(self, input: torch.Tensor):
         """

@@ -150,7 +150,9 @@ class ModelCommProcessGroups:
         }
 
         # Build initialization dict by calling appropriate parallel_state get_foo_group
-        init_dict = {pg: pg_to_func[pg](check_initialized=False) for pg in required_pgs}
+        init_dict = {
+            pg: pg_to_func[pg](check_initialized=False) for pg in required_pgs if pg in pg_to_func
+        }
 
         return cls(**init_dict)
 
