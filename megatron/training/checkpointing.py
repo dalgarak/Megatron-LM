@@ -483,7 +483,7 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler, num_floati
                             logger.debug("Failed to plug in the read metadata from the load strategy...")
 
                 if args.ckpt_fully_parallel_save:
-                    save_strategy = FullyParallelSaveStrategyWrapper(save_strategy, mpu.get_data_parallel_group_gloo(with_context_parallel=True),
+                    save_strategy = FullyParallelSaveStrategyWrapper(save_strategy, mpu.get_data_parallel_group(with_context_parallel=True),
                                                                      args.ckpt_assume_constant_structure)
             # Store save strategy for future checkpoint saves
             if checkpointing_context is not None:
@@ -920,8 +920,7 @@ def _load_global_dist_base_checkpoint(
     # NOTE: `args.ckpt_fully_parallel_load` applies to both persistent and non-persistent checkpoints.
     if args.ckpt_fully_parallel_load:
         load_strategy = FullyParallelLoadStrategyWrapper(
-            # JHSHIN, CHECKME: adopts gloo backend for host-to-host
-            load_strategy, mpu.get_data_parallel_group_gloo(with_context_parallel=True)
+            load_strategy, mpu.get_data_parallel_group(with_context_parallel=True)
         )
     if checkpointing_context is not None:
         checkpointing_context["load_strategy"] = load_strategy

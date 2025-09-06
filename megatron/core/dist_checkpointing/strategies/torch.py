@@ -748,11 +748,6 @@ class TorchDistSaveShardedStrategy(AsyncSaveShardedStrategy):
                 self.validated_cache_reuse,
             )
 
-        # JHSHIN, host-host gather_object()를 위해 None -> Gloo backend를 명시적으로 쓰도록 변경
-        # naver cloud/mlx 에서 학습을 위함.
-        #gloo_pg = get_world_group_gloo()
-        gloo_pg = None
-
         (
             save_state_dict_ret,
             self.cached_central_plan,
@@ -762,8 +757,7 @@ class TorchDistSaveShardedStrategy(AsyncSaveShardedStrategy):
         ) = save_state_dict_async_plan(
             pyt_state_dict,
             writer,
-            #None,
-            gloo_pg,        # JHSHIN, None to gloo_pg.
+            None,
             coordinator,
             planner=MCoreSavePlanner(
                 dedup_replicated_tensors=not self.keep_only_main_replica, flatten_state_dict=False
@@ -921,11 +915,6 @@ class TorchDistLoadShardedStrategy(LoadShardedStrategy):
             sharded_state_dict, True, load_legacy_1d_flatten_tensors=has_legacy_1d_flattened_tensors
         )
         # Load PyT Distributed format
-        # jhshin, host-to-host scatter_object()를 위해 None -> Gloo backend를 사용하게 변경.
-        # naver cloud/mlx 에서 학습을 위함.
-        #gloo_pg = get_world_group_gloo()
-        gloo_pg = None
-
         fsr = _get_filesystem_reader(checkpoint_dir, cache_metadata=True)
         checkpoint.load_state_dict(
             pyt_state_dict,
@@ -934,8 +923,6 @@ class TorchDistLoadShardedStrategy(LoadShardedStrategy):
                 shapes_validation_sharded_tensors=flexible_shape_sharded_tensors,
                 allow_shape_mismatch_sharded_tensors=allow_shape_mismatch_sharded_tensors,
             ),
-            # JHSHIN, added for host-to-host scatter_object collectives.
-            process_group=gloo_pg,
         )
 
         self.cached_global_metadata = (

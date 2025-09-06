@@ -163,9 +163,7 @@ def save_state_dict_async_plan(
         # we have to reference `is_coordinator` args by name
         planner.set_up_planner(state_dict, is_coordinator=dist_wrapper.is_coordinator)
         storage_writer.set_up_storage_writer(dist_wrapper.is_coordinator)
-        # JHSHIN; OR이 되어야 하지 않나?
         if not validated_cache_reuse and local_plan is None:
-            logger.debug(f"rank: {rank}, in local_step(), create_local_plan() called.")
             local_plan = planner.create_local_plan()
         local_plan = storage_writer.prepare_local_plan(local_plan)
         return local_plan
@@ -200,7 +198,6 @@ def save_state_dict_async_plan(
             """
             JHSHIN
             """
-            torch.distributed.barrier()
             """
             # ========================================================
             import pickle, cloudpickle, traceback
@@ -220,12 +217,11 @@ def save_state_dict_async_plan(
             logger.debug(f"[rank {rank}] local_plan -> {check_pickleable(local_plan)}")
             # ========================================================
             """
-            logger.warning(f"rank: {rank}, Wait gather_object;")
+            logger.warning(f"rank: {rank}, @ save checkpoints; Wait gather_object;")
             torch.cuda.set_device(dist.get_rank())
             #all_local_plans = dist_wrapper.gather_object(local_plan)
             all_local_plans = nccl_safe_gather_object(local_plan, group=process_group)
-            torch.distributed.barrier()
-            logger.warning(f"rank: {rank}, gather_object success;")
+            logger.warning(f"rank: {rank}, @ save checkpoints; gather_object success;")
             if dist_wrapper.is_coordinator:
                 _, global_metadata = planner.create_global_plan(all_local_plans)
                 global_metadata.all_local_plans = all_local_plans
