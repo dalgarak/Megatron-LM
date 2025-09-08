@@ -25,60 +25,6 @@ logger = getLogger(__name__)
 from dataclasses import fields
 
 
-def nccl_safe_gather_object(obj, group=None):
-    """
-    Performs a `gather_object` operation in an NCCL-safe manner.
-    
-    Args:
-        obj: The Python object to gather on the current rank.
-        group: The process group to use for communication (must be NCCL).
-
-    Returns:
-        On rank 0 of the group, a list of objects gathered from all ranks.
-        On other ranks, None.
-    """
-    rank = dist.get_rank(group)
-    world_size = dist.get_world_size(group)
-    
-    # 1. 직렬화: dump object and replace to bytetensor
-    serialized_obj = pickle.dumps(obj)
-    local_tensor = torch.tensor(bytearray(serialized_obj), dtype=torch.uint8, device='cuda')
-    local_size = torch.tensor(len(serialized_obj), dtype=torch.long, device='cuda')
-
-    # 2. 크기 정보 교환: collect all rank tensor
-    all_sizes = [torch.zeros_like(local_size) for _ in range(world_size)]
-    dist.all_gather(all_sizes, local_size, group=group)
-    max_size = max(size.item() for size in all_sizes)
-
-    # 3. 패딩 및 텐서 통신
-    #   A. 패딩된 텐서 버퍼를 준비
-    padded_local_tensor = torch.zeros(max_size, dtype=torch.uint8, device='cuda')
-    padded_local_tensor[:local_size] = local_tensor
-
-    #   B. 결과를 수신할 리스트 준비
-    gathered_tensors = None
-    if rank == 0:
-        gathered_tensors = [torch.zeros_like(padded_local_tensor) for _ in range(world_size)]
-
-    #   C. gather
-    dist.gather(padded_local_tensor, gather_list=gathered_tensors, dst=0, group=group)
-
-    # 4. deserialization (@ rank 0)
-    if rank == 0:
-        result = []
-        for i in range(world_size):
-            original_size = all_sizes[i].item()
-            # removes padding 
-            padded_tensor = gathered_tensors[i]
-            unpadded_bytes = padded_tensor[:original_size].cpu().numpy().tobytes()
-            # unpickle
-            deserialized_obj = pickle.loads(unpadded_bytes)
-            result.append(deserialized_obj)
-        return result
-    else:
-        return None
-
-
 def _compare_dataclasses(obj1, obj2):
     if type(obj1) != type(obj2):
         return f"Objects are of different types: {type(obj1)} and {type(obj2)}"
@@ -218,9 +164,7 @@ def save_state_dict_async_plan(
             # ========================================================
             """
             logger.warning(f"rank: {rank}, @ save checkpoints; Wait gather_object;")
-            torch.cuda.set_device(dist.get_rank())
-            #all_local_plans = dist_wrapper.gather_object(local_plan)
-            all_local_plans = nccl_safe_gather_object(local_plan, group=process_group)
+            all_local_plans = dist_wrapper.gather_object(local_plan)
             logger.warning(f"rank: {rank}, @ save checkpoints; gather_object success;")
             if dist_wrapper.is_coordinator:
                 _, global_metadata = planner.create_global_plan(all_local_plans)
