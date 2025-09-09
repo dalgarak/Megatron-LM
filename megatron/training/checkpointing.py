@@ -299,7 +299,8 @@ def get_rng_state(ckpt_format: str):
         torch.distributed.all_gather_object(
             rng_state_list,
             rng_state,
-            group=mpu.get_data_parallel_group())
+            # JHSHIN, enforces to use GLOOëbackend.
+            group=mpu.get_data_parallel_group_gloo())
     else:
         rng_state_list = [rng_state]
 

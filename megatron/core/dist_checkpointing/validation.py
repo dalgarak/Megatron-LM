@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, List, Optional, Set, Tuple, Union
 import numpy as np
 import torch
 
+from megatron.core import parallel_state as mpu
 from megatron.core.dist_checkpointing import ShardedTensor
 from megatron.core.dist_checkpointing.core import CheckpointingException, maybe_load_config
 from megatron.core.dist_checkpointing.dict_utils import (
@@ -545,7 +546,9 @@ def determine_global_metadata(
     """
     local_metadata = [ten.without_data() for ten in nested_values(sharded_state_dict)]
     global_metadata = [None] * torch.distributed.get_world_size()
-    torch.distributed.all_gather_object(global_metadata, local_metadata)
+    torch.distributed.all_gather_object(global_metadata, local_metadata,
+            # JHSHIN, enforce to use GLOO backend.
+            group=mpu.get_world_group_gloo())
     return local_metadata, global_metadata  # type: ignore[return-value]
 
 
