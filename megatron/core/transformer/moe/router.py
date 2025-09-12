@@ -44,6 +44,7 @@ class Router(ABC, MegatronModule):
         self.tp_group = model_comm_pgs.tp
         self.cp_group = model_comm_pgs.cp
         self.tp_cp_group = model_comm_pgs.tp_cp
+        self.tp_dp_cp_group = model_comm_pgs.tp_dp_cp
 
         # Initialize the gate weights.
         # TODO: Add support for GPU initialization, which requires updating the golden values.
@@ -156,6 +157,18 @@ class TopKRouter(Router):
             self.local_tokens_per_expert = None
             self.expert_bias = None
 
+        # Initialize global tokens per expert for global aux loss
+        if self.get_aux_loss_coeff("global_aux_loss") > 0:
+            self.register_buffer(
+                'global_tokens_per_expert',
+                torch.zeros(self.config.num_moe_experts, dtype=torch.float32),
+                persistent=False,
+            )
+            self.ga_steps = 0
+        else:
+            self.global_tokens_per_expert = None
+            self.ga_steps = None
+
     def _maintain_float32_expert_bias(self):
         """
         Maintain the expert bias in float32.
@@ -221,6 +234,21 @@ class TopKRouter(Router):
             if self.get_aux_loss_coeff(aux_loss_type) > 0:
                 return True
         return False
+
+    def get_aux_loss_coeff(self, aux_loss_type: str) -> float:
+        """Return the aux loss coeff for the given auxiliary loss type.
+        If the auxiliary loss type is not found, return 0.0.
+        """
+        if isinstance(self.routing_type, str):
+            if self.routing_type == aux_loss_type:
+                return self.config.moe_aux_loss_coeff
+        if isinstance(self.routing_type, list):
+            try:
+                idx = self.routing_type.index(aux_loss_type)
+                return self.config.moe_aux_loss_coeff[idx]
+            except ValueError:
+                return 0.0
+        return 0.0
 
     def _apply_aux_loss(
         self, probs: torch.Tensor, scores_for_aux_loss: torch.Tensor, routing_map: torch.Tensor
@@ -291,6 +319,43 @@ class TopKRouter(Router):
         )
         probs = self.attach_and_log_load_balancing_loss(
             probs, seq_aux_loss_coeff, aux_loss, "seq_load_balancing_loss", self.tp_cp_group
+        )
+        return probs
+
+    def _apply_global_aux_loss(
+        self, probs: torch.Tensor, scores_for_aux_loss: torch.Tensor, routing_map: torch.Tensor
+    ):
+        """Apply the global auxiliary loss for the given scores and routing map."""
+        global_aux_loss_coeff = self.get_aux_loss_coeff("global_aux_loss")
+        if global_aux_loss_coeff == 0:
+            return probs
+
+        tokens_per_expert = routing_map.sum(dim=0)
+        tokens_per_expert = reduce_from_tensor_model_parallel_region(
+            tokens_per_expert, self.tp_dp_cp_group
+        )
+
+        self.global_tokens_per_expert += tokens_per_expert
+        self.ga_steps += 1
+        averated_tokens_per_expert = self.global_tokens_per_expert / self.ga_steps
+
+        num_tokens = scores_for_aux_loss.shape[0]
+        total_num_tokens = num_tokens * self.tp_dp_cp_group.size()
+
+        global_aux_loss = switch_load_balancing_loss_func(
+            probs=scores_for_aux_loss,
+            tokens_per_expert=averated_tokens_per_expert,
+            total_num_tokens=total_num_tokens,
+            topk=self.topk,
+            num_experts=self.config.num_moe_experts,
+            moe_aux_loss_coeff=global_aux_loss_coeff,
+        )
+        probs = self.attach_and_log_load_balancing_loss(
+            probs,
+            global_aux_loss_coeff,
+            global_aux_loss,
+            "global_load_balancing_loss",
+            self.tp_dp_cp_group,
         )
         return probs
 
@@ -440,6 +505,9 @@ class TopKRouter(Router):
             probs = self._apply_seq_aux_loss(
                 probs, scores_for_aux_loss, routing_map_for_aux_loss, seq_length, bsz
             )
+            probs = self._apply_global_aux_loss(
+                probs, scores_for_aux_loss, routing_map_for_aux_loss
+            )
 
         # Update expert bias and tokens_per_expert
         # Prevent extra local tokens accumulation on evaluation or activation recomputation
@@ -448,6 +516,12 @@ class TopKRouter(Router):
                 self.local_tokens_per_expert += routing_map.sum(dim=0)
 
         return probs, routing_map
+
+    def reset_global_aux_loss_tracker(self):
+        """Reset the global aux loss tracker."""
+        if self.global_tokens_per_expert is not None:
+            self.global_tokens_per_expert.zero_()
+            self.ga_steps = 0
 
     def forward(self, input: torch.Tensor):
         """
