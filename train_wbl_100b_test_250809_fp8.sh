@@ -29,6 +29,8 @@ DISTRIBUTED_ARGS=(
 # MLA이므로 position-embedding-type을 none으로 둔다.
 #  --no-position-embedding은 deprecated. 쓰지 않는다.
 #  --max-position-embeddings 4096 이외의 값을 사용하면 경고가 나온다.
+# 25.09.12. zero-centered gamma-enabled RMSNorm 추가 (--apply-layernorm-1p). HF 모델 만들 때 반영 필요함
+# 참고: https://github.com/huggingface/transformers/blob/8502b41bf1862eeea0f1bc7c325f1d44e7b15c8d/src/transformers/models/qwen3_next/modeling_qwen3_next.py#L215
 MODEL_ARGS=(
     --disable-bias-linear
     --seq-length 4096
@@ -44,16 +46,17 @@ MODEL_ARGS=(
     --swiglu
     --untie-embeddings-and-output-weights
     --no-masked-softmax-fusion
+    --apply-layernorm-1p
 )
 
 # --moe-ffn-hidden-size는 세팅하지 않는다. ffn-hidden-size를 따라감.
 #--moe-use-upcycling
+# expert overlapping은 지원 여부에 따라 결정하자.    --moe-shared-expert-overlap \
 MOE_ARGS=(
     --num-experts 128 \
     --moe-layer-freq '([0]*3+[1]*45)' \
     --moe-ffn-hidden-size 2048 
     --moe-shared-expert-intermediate-size 2048 \
-    --moe-shared-expert-overlap \
     --moe-router-padding-for-fp8 \
     --moe-router-load-balancing-type aux_loss \
     --moe-router-topk 8 \
@@ -136,12 +139,12 @@ MODEL_PARALLEL_ARGS=(
 #    blockwise scaling에는 CUDA 12.9 세팅이 필요.
 #    --fp8-recipe 'blockwise'
 #    blockwise가 좀 더 빠르긴 한데, loss 흔들림이 소형 모델 (5B) 테스트에서 발견되었음.
+# 나중에 제거함:    --fp8-param-gather
 FP8_ARGS=(
     --fp8-format 'hybrid'
     --fp8-recipe 'delayed'
     --fp8-amax-history-len 1024 
     --fp8-amax-compute-algo 'max'
-    --fp8-param-gather
     --num-layers-at-start-in-bf16 1
     --num-layers-at-end-in-bf16 1
 )
