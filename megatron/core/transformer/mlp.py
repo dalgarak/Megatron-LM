@@ -340,6 +340,12 @@ def apply_swiglu_sharded_factory(
 
     def sh_ten_merge_fn(sub_state_dict):
         with torch.no_grad():
+            """ to prevent OOM """
+            merged_sub_state_dict = torch.cat([t.cpu() for t in sub_state_dict])
+            gc.collect()
+            torch.cuda.empty_cache()
+            return merged_sub_state_dict
+            """
             try:
                 return torch.cat(sub_state_dict)
             except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
@@ -351,6 +357,7 @@ def apply_swiglu_sharded_factory(
                 gc.collect()
                 torch.cuda.empty_cache()
                 return merged_sub_state_dict
+            """
 
     return ShardedTensorFactory(
         original_sh_ten.key,
