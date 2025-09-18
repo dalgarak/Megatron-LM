@@ -90,6 +90,7 @@ class SelfAttentionSubmodules:
     linear_proj: Union[ModuleSpec, type] = None
     q_layernorm: Union[ModuleSpec, type] = None
     k_layernorm: Union[ModuleSpec, type] = None
+    post_attn_layernorm: Union[ModuleSpec, type] = None              # JHSHIN ADDED
 
 
 @dataclass
@@ -187,6 +188,16 @@ class Attention(MegatronModule, ABC):
             is_expert=False,
             tp_comm_buffer_name='proj',
             tp_group=self.model_comm_pgs.tp,
+        )
+
+        # POST-LN, JHSHIN.
+        if submodules.post_attn_layernorm is None:
+            submodules.post_attn_layernorm = TENorm
+        self.post_attn_layernorm = build_module(
+            submodules.post_attn_layernorm,
+            hidden_size=self.config.hidden_size,
+            config=self.config,
+            eps=self.config.layernorm_epsilon,
         )
 
     def _checkpointed_attention_forward(
@@ -827,6 +838,9 @@ class Attention(MegatronModule, ABC):
         nvtx_range_push(suffix="linear_proj")
         output, bias = self.linear_proj(core_attn_out)
         nvtx_range_pop(suffix="linear_proj")
+
+        # Post-LN, JHSHIN ADDED.
+        output = self.post_attn_layernorm(output)
 
         return output, bias
 
