@@ -419,8 +419,19 @@ class TransformerLayer(MegatronModule, BaseTransformerLayer):
                     and not self.config.external_cuda_graph
                 ):
                     self.recompute_input_layernorm = True
+                    if self.config.fp8:
+                        self.self_attention.set_for_recompute_input_layernorm()
                 if not isinstance(self.pre_mlp_layernorm, IdentityOp):
                     self.recompute_pre_mlp_layernorm = True
+                    if self.config.fp8:
+                        if isinstance(self.mlp, MoELayer):
+                            self.mlp.set_for_recompute_pre_mlp_layernorm()
+                        else:
+                            from megatron.core.extensions.transformer_engine import (
+                                set_save_original_input,
+                            )
+
+                            set_save_original_input(self.mlp.linear_fc1)
             if "mlp" in self.config.recompute_modules:
                 if not isinstance(self.mlp, MoELayer):
                     self.recompute_mlp = True
@@ -641,7 +652,7 @@ class TransformerLayer(MegatronModule, BaseTransformerLayer):
                 mlp_output_with_bias[0]
             )
         nvtx_range_pop(suffix="mlp")
-        
+
         # JHSHIN added, post-ln to implement peri-ln structure.
         # FIXME: post-mlp layernorm도 동일하게 recompute하게 수정할 필요가 있음.
         nvtx_range_push(suffix="post_mlp_layernorm")

@@ -403,12 +403,29 @@ class DistributedDataParallel(_BaseDataParallel):
         self.grad_accs = []
         for param in self.module.parameters():
             if param.requires_grad:
-                # Expand so we get access to grad_fn.
-                param_tmp = param.expand_as(param)
-                # Get the gradient accumulator function.
-                grad_acc = param_tmp.grad_fn.next_functions[0][0]
-                grad_acc.register_hook(self._make_backward_post_hook(param))
-                self.grad_accs.append(grad_acc)
+                # When delay_wgrad_compute is True and the param is marked with
+                # skip_backward_post_hook, register the backward post hook for its module
+                # instead of the param so that the wgrad accumulation and reduce will be performed
+                # in backward_dw() method of the module instead of the hook of backward() method.
+                # Otherwise, register the backward post hook for the param.
+                if self.ddp_config.delay_wgrad_compute and getattr(
+                    param, 'skip_backward_post_hook', False
+                ):
+                    for module in self.module.modules():
+                        if hasattr(module, "register_wgrad_accumulation_and_reduce_hooks"):
+                            for param_value in module.parameters():
+                                if param is param_value:
+                                    module.register_wgrad_accumulation_and_reduce_hooks(
+                                        self._make_backward_post_hook(param)
+                                    )
+                                    break
+                else:
+                    # Expand so we get access to grad_fn.
+                    param_tmp = param.expand_as(param)
+                    # Get the gradient accumulator function.
+                    grad_acc = param_tmp.grad_fn.next_functions[0][0]
+                    grad_acc.register_hook(self._make_backward_post_hook(param))
+                    self.grad_accs.append(grad_acc)
 
         self.use_forward_hook = (
             self.ddp_config.use_distributed_optimizer and self.ddp_config.overlap_param_gather
@@ -560,8 +577,11 @@ class DistributedDataParallel(_BaseDataParallel):
                         param_slice = bucket.param_data.view(-1)[param_start:param_end]
                         param.data.copy_(param_slice.view(param.data.shape))
                     # All-gathered params are not needed after being copied to param.data.
-                    # Zero out the grad buffer (shared with param buffer) for gradient accumulation.
-                    bucket.grad_data.zero_()
+                    # Zero out the param buffer (shared with grad buffer) for gradient accumulation.
+                    # We cannot zero out the entire grad buffer because one grad buffer may
+                    # correspond to multiple param buffers. If we zero out the entire grad buffer,
+                    # it would clear the data of those param buffers that have not yet completed AG.
+                    bucket.param_data.zero_()
 
     def start_grad_sync(self, *unused):
         """
@@ -603,16 +623,8 @@ class DistributedDataParallel(_BaseDataParallel):
             # to True, and there will be a double-GA.
             for param in self.params_with_grad:
                 param.grad_added_to_main_grad = False
-        # In the case of "reuse_grad_buf_for_mxfp8_param_ag=True & overlap_param_gather=True",
-        # the grad buffer is not reset here because the grad buffer is shared with the param buffer.
-        # The grad buffer is zeroed by "bucket.grad_data.zero_()" in the "finish_param_sync" stage
-        # after the param all-gather.
-        if not (
-            self.ddp_config.reuse_grad_buf_for_mxfp8_param_ag
-            and self.ddp_config.overlap_param_gather
-        ):
-            for buffer in self.buffers + self.expert_parallel_buffers:
-                buffer.reset()
+        for buffer in self.buffers + self.expert_parallel_buffers:
+            buffer.reset()
         for bucket_group in self.bucket_groups + self.expert_parallel_bucket_groups:
             bucket_group.reset()
 
