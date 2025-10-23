@@ -133,7 +133,12 @@ def model_provider(
         Union[GPTModel, megatron.legacy.model.GPTModel]: The returned model
     """
     args = get_args()
+    return model_provider_with_args(args, pre_process, post_process, vp_stage)
 
+
+def model_provider_with_args(
+    args, pre_process=True, post_process=True, vp_stage: Optional[int] = None
+) -> Union[GPTModel, megatron.legacy.model.GPTModel]:
     if has_nvidia_modelopt and modelopt_args_enabled(args):  # [ModelOpt]
         return model_provider_modelopt(pre_process, post_process)
 
