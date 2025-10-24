@@ -14,8 +14,7 @@ from megatron.bridge.models.conversion.model_bridge import (
     WeightConversionTask,
     _megatron_local_name_to_global,
 )
-from megatron.bridge.models.conversion.param_mapping import AutoMapping
-from megatron.bridge.models.deepseek.common import get_common_mapping_list
+from megatron.bridge.models.conversion.param_mapping import AutoMapping, GatedMLPMapping
 from megatron.bridge.models.conversion.utils import (
     get_module_and_param_from_name,
     persistent_buffers,
@@ -26,20 +25,73 @@ from megatron.bridge.utils.common_utils import print_rank_0
 logger = logging.getLogger(__name__)
 
 
+def get_mapping_list() -> list:
+    param_mappings = {
+        # Embed
+        "embedding.word_embeddings.weight": "model.embed_tokens.weight",
+        # Attention
+        "decoder.layers.*.input_layernorm.weight": "model.layers.*.input_layernorm.weight",
+        "decoder.layers.*.self_attention.linear_proj.weight": "model.layers.*.self_attn.o_proj.weight",
+        "decoder.layers.*.pre_mlp_layernorm.weight": "model.layers.*.post_attention_layernorm.weight",
+        "decoder.layers.*.mlp.linear_fc1.layer_norm_weight": "model.layers.*.post_attention_layernorm.weight",
+        "decoder.layers.*.self_attention.linear_kv_down_proj.weight": "model.layers.*.self_attn.kv_a_proj_with_mqa.weight",
+        "decoder.layers.*.self_attention.linear_kv_up_proj.weight": "model.layers.*.self_attn.kv_b_proj.weight",
+        "decoder.layers.*.self_attention.linear_kv_up_proj.layer_norm_weight": "model.layers.*.self_attn.kv_a_layernorm.weight",
+        # Mcore local spec
+        "decoder.layers.*.self_attention.kv_layernorm.weight": "model.layers.*.self_attn.kv_a_layernorm.weight",
+        # Dense MLP
+        "decoder.layers.*.mlp.linear_fc2.weight": "model.layers.*.mlp.down_proj.weight",
+        # MoE
+        "decoder.layers.*.mlp.router.weight": "model.layers.*.mlp.gate.weight",
+        "decoder.layers.*.mlp.experts.linear_fc2.weight*": "model.layers.*.mlp.experts.*.down_proj.weight",
+        "decoder.layers.*.mlp.shared_experts.linear_fc2.weight": "model.layers.*.mlp.shared_experts.down_proj.weight",
+        "decoder.layers.*.mlp.router.expert_bias": "model.layers.*.mlp.gate.e_score_correction_bias",
+        # LM Head
+        "decoder.final_layernorm.weight": "model.norm.weight",
+        "output_layer.weight": "lm_head.weight",
+        # MLA
+        "decoder.layers.*.self_attention.linear_q_down_proj.weight": "model.layers.*.self_attn.q_a_proj.weight",
+        "decoder.layers.*.self_attention.linear_q_up_proj.weight": "model.layers.*.self_attn.q_b_proj.weight",
+        "decoder.layers.*.self_attention.linear_q_up_proj.layer_norm_weight": "model.layers.*.self_attn.q_a_layernorm.weight",
+        # Mcore local spec
+        "decoder.layers.*.self_attention.q_layernorm.weight": "model.layers.*.self_attn.q_a_layernorm.weight",
+        # For models without MLA
+        "decoder.layers.*.self_attention.linear_q_proj.weight": "model.layers.*.self_attn.q_proj.weight",
+    }
+
+    mapping_list = []
+    # Convert each dictionary entry to AutoMapping(hf_param, megatron_param)
+    for megatron_param, hf_param in param_mappings.items():
+        mapping_list.append(AutoMapping(megatron_param=megatron_param, hf_param=hf_param))
+
+    mapping_list.extend(
+        [
+            GatedMLPMapping(
+                megatron_param="decoder.layers.*.mlp.linear_fc1.weight",
+                gate="model.layers.*.mlp.gate_proj.weight",
+                up="model.layers.*.mlp.up_proj.weight",
+            ),
+            GatedMLPMapping(
+                megatron_param="decoder.layers.*.mlp.experts.linear_fc1.weight*",
+                gate="model.layers.*.mlp.experts.*.gate_proj.weight",
+                up="model.layers.*.mlp.experts.*.up_proj.weight",
+            ),
+            GatedMLPMapping(
+                megatron_param="decoder.layers.*.mlp.shared_experts.linear_fc1.weight",
+                gate="model.layers.*.mlp.shared_experts.gate_proj.weight",
+                up="model.layers.*.mlp.shared_experts.up_proj.weight",
+            ),
+        ]
+    )
+
+    return mapping_list
+
+
 @MegatronModelBridge.register_bridge(source="WBLForCausalLM", target=GPTModel)
 class WBLBridge(MegatronModelBridge):
 
     def mapping_registry(self) -> MegatronMappingRegistry:
-        mapping_list = get_common_mapping_list()
-
-        param_mappings = {
-            # expert bias
-            "decoder.layers.*.mlp.router.expert_bias": "model.layers.*.mlp.gate.e_score_correction_bias",
-        }
-
-        for megatron_param, hf_param in param_mappings.items():
-            mapping_list.append(AutoMapping(megatron_param=megatron_param, hf_param=hf_param))
-
+        mapping_list = get_mapping_list()
         return MegatronMappingRegistry(*mapping_list)
 
     def build_conversion_tasks(
@@ -55,7 +107,7 @@ class WBLBridge(MegatronModelBridge):
         mapping_registry = self.mapping_registry()
         model_unwrapped = unwrap_model(megatron_model)[0]
         model_config = model_unwrapped.config
-        embeddings_are_tied = model_unwrapped.share_embeddings_and_output_weights
+        embeddings_are_tied = model_config.share_embeddings_and_output_weights = model_unwrapped.share_embeddings_and_output_weights
         pp_rank = parallel_state.get_pipeline_model_parallel_rank()
         sorted_global_param_names_all_pp_ranks = self._megatron_global_param_names_all_pp_ranks(megatron_model)
 
