@@ -11,7 +11,6 @@ import warnings
 from argparse import Namespace
 
 import torch
-import tqdm
 
 from megatron.core.inference.contexts import StaticInferenceContext
 from megatron.core.inference.engines import StaticInferenceEngine

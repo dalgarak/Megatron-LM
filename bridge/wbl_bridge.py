@@ -32,20 +32,20 @@ def get_mapping_list() -> list:
         # Attention
         "decoder.layers.*.input_layernorm.weight": "model.layers.*.input_layernorm.weight",
         "decoder.layers.*.self_attention.linear_proj.weight": "model.layers.*.self_attn.o_proj.weight",
-        "decoder.layers.*.pre_mlp_layernorm.weight": "model.layers.*.post_attention_layernorm.weight",
-        "decoder.layers.*.mlp.linear_fc1.layer_norm_weight": "model.layers.*.post_attention_layernorm.weight",
         "decoder.layers.*.self_attention.linear_kv_down_proj.weight": "model.layers.*.self_attn.kv_a_proj_with_mqa.weight",
         "decoder.layers.*.self_attention.linear_kv_up_proj.weight": "model.layers.*.self_attn.kv_b_proj.weight",
         "decoder.layers.*.self_attention.linear_kv_up_proj.layer_norm_weight": "model.layers.*.self_attn.kv_a_layernorm.weight",
-        # Mcore local spec
         "decoder.layers.*.self_attention.kv_layernorm.weight": "model.layers.*.self_attn.kv_a_layernorm.weight",
+        "decoder.layers.*.self_attention.post_attn_layernorm.weight": "model.layers.*.post_attention_layernorm.weight",
         # Dense MLP
+        "decoder.layers.*.mlp.linear_fc1.layer_norm_weight": "model.layers.*.pre_mlp_layernorm.weight",
         "decoder.layers.*.mlp.linear_fc2.weight": "model.layers.*.mlp.down_proj.weight",
         # MoE
+        "decoder.layers.*.pre_mlp_layernorm.weight": "model.layers.*.pre_mlp_layernorm.weight",
         "decoder.layers.*.mlp.router.weight": "model.layers.*.mlp.gate.weight",
         "decoder.layers.*.mlp.experts.linear_fc2.weight*": "model.layers.*.mlp.experts.*.down_proj.weight",
         "decoder.layers.*.mlp.shared_experts.linear_fc2.weight": "model.layers.*.mlp.shared_experts.down_proj.weight",
-        "decoder.layers.*.mlp.router.expert_bias": "model.layers.*.mlp.gate.e_score_correction_bias",
+        "decoder.layers.*.post_mlp_layernorm.weight": "model.layers.*.post_mlp_layernorm.weight",
         # LM Head
         "decoder.final_layernorm.weight": "model.norm.weight",
         "output_layer.weight": "lm_head.weight",
