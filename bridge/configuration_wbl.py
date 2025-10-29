@@ -43,7 +43,6 @@ class WBLConfig(PretrainedConfig):
         qk_rope_head_dim=64,
         v_head_dim=128,
         qk_nope_head_dim=128,
-        n_group=8,
         topk_group=4,
         num_experts_per_tok=8,
         first_k_dense_replace=3,
@@ -58,7 +57,10 @@ class WBLConfig(PretrainedConfig):
         eos_token_id=1,
         pretraining_tp=1,
         tie_word_embeddings=False,
-        rope_theta=10000.0,
+        sliding_window=512,
+        layer_types=None,
+        rope_theta_local=10000.0,
+        rope_theta_global=1000000.0,
         rope_scaling=None,
         rope_interleave=True,
         attention_bias=False,
@@ -82,7 +84,6 @@ class WBLConfig(PretrainedConfig):
         self.qk_nope_head_dim = qk_nope_head_dim
         self.qk_head_dim = qk_nope_head_dim + qk_rope_head_dim
         self.head_dim = qk_rope_head_dim
-        self.n_group = n_group
         self.topk_group = topk_group
         self.num_experts_per_tok = num_experts_per_tok
         self.first_k_dense_replace = first_k_dense_replace
@@ -99,7 +100,10 @@ class WBLConfig(PretrainedConfig):
         self.rms_norm_eps = rms_norm_eps
         self.pretraining_tp = pretraining_tp
         self.use_cache = use_cache
-        self.rope_theta = rope_theta
+        self.sliding_window = sliding_window
+        self.layer_types = layer_types
+        self.rope_theta = rope_theta_local
+        self.rope_theta_global = rope_theta_global
         self.rope_scaling = rope_scaling
         self.attention_bias = attention_bias
         self.attention_dropout = attention_dropout
@@ -114,6 +118,12 @@ class WBLConfig(PretrainedConfig):
                     self.rope_scaling[key] = float(self.rope_scaling[key])
 
         rope_config_validation(self)
+
+        if self.layer_types is None:
+            self.layer_types = [
+                "sliding_attention" if bool((i + 1) % 6) else "full_attention"
+                for i in range(self.num_hidden_layers)
+            ]
 
         super().__init__(
             pad_token_id=pad_token_id,

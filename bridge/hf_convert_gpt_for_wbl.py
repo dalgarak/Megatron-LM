@@ -13,10 +13,13 @@ def provider_to_config(model, save_directory):
 
 
 def copy_codes(save_directory):
+    os.makedirs(save_directory, exist_ok=True)
     shutil.copy("./bridge/configuration_wbl.py", f"{save_directory}/")
     shutil.copy("./bridge/modeling_wbl.py", f"{save_directory}/")
 
+
 def copy_tokenizer_files(tokenizer_path, save_directory):
+    os.makedirs(save_directory, exist_ok=True)
     for item in os.listdir(tokenizer_path):
         shutil.copy(f"{tokenizer_path}/{item}", f"{save_directory}/")
 
@@ -62,7 +65,6 @@ def megatron_to_hf(model, save_directory):
     parallel_state.initialize_model_parallel()
 
     output_path = f"{save_directory}/hf"
-    os.makedirs(output_path, exist_ok=True)
     bridge = AutoBridge.from_hf_pretrained(save_directory, trust_remote_code=True)
     bridge.save_hf_pretrained([model], output_path)
     copy_codes(output_path)
