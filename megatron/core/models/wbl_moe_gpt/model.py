@@ -249,7 +249,6 @@ class LocalGlobalMultiLatentAttention(MultiLatentAttention):
         cp_comm_type: Optional[str] = None,
         model_comm_pgs: ModelCommProcessGroups = None,
     ) -> None:
-        submodules.post_attn_layernorm = TENorm
         super().__init__(config=config, submodules=submodules, layer_number=layer_number,
                          attn_mask_type=attn_mask_type,
                          attention_type=attention_type,
