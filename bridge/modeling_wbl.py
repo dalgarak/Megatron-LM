@@ -225,23 +225,22 @@ class WBLAttention(nn.Module):
         self.is_sliding = config.layer_types[layer_idx] == "sliding_attention"
         self.config = config
         self.layer_idx = layer_idx
-        self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
         self.attention_dropout = config.attention_dropout
         self.num_heads = config.num_attention_heads
         self.rope_theta = config.rope_theta
         self.q_lora_rank = config.q_lora_rank
         self.qk_rope_head_dim = config.qk_rope_head_dim
-        self.kv_lora_rank = config.kv_lora_rank
-        self.v_head_dim = config.v_head_dim
         self.qk_nope_head_dim = config.qk_nope_head_dim
         self.qk_head_dim = config.qk_head_dim
+        self.kv_lora_rank = config.kv_lora_rank
+        self.v_head_dim = config.v_head_dim
 
         self.is_causal = True
         if self.q_lora_rank is None:
             self.q_proj = nn.Linear(config.hidden_size, self.num_heads * self.qk_head_dim, bias=False)
         else:
             self.q_a_proj = nn.Linear(config.hidden_size, config.q_lora_rank, bias=config.attention_bias)
-            self.q_a_layernorm = WBLRMSNorm(config.q_lora_rank)
+            self.q_a_layernorm = WBLRMSNorm(config.q_lora_rank, eps=config.rms_norm_eps)
             self.q_b_proj = nn.Linear(config.q_lora_rank, self.num_heads * self.qk_head_dim, bias=False)
 
         self.kv_a_proj_with_mqa = nn.Linear(
@@ -249,7 +248,7 @@ class WBLAttention(nn.Module):
             self.kv_lora_rank + self.qk_rope_head_dim,
             bias=config.attention_bias,
         )
-        self.kv_a_layernorm = WBLRMSNorm(self.kv_lora_rank)
+        self.kv_a_layernorm = WBLRMSNorm(self.kv_lora_rank, eps=config.rms_norm_eps)
         self.kv_b_proj = nn.Linear(
             self.kv_lora_rank,
             self.num_heads * (self.qk_nope_head_dim + self.v_head_dim),
@@ -439,7 +438,6 @@ class WBLPreTrainedModel(PreTrainedModel):
 
 
 class WBLModel(WBLPreTrainedModel):
-    _keys_to_ignore_on_load_unexpected = [r"model\.layers\.61.*"]
 
     def __init__(self, config: WBLConfig):
         super().__init__(config)

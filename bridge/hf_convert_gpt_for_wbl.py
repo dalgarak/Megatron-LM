@@ -1,33 +1,82 @@
 import os
 import shutil
 import json
-import torch
+import argparse
+from itertools import takewhile
+from accelerate import init_empty_weights
+from huggingface_hub import split_torch_state_dict_into_shards
+from transformers.utils import SAFE_WEIGHTS_NAME, SAFE_WEIGHTS_INDEX_NAME
+from transformers import AutoModelForCausalLM, AutoConfig
 from megatron.core import parallel_state
+from megatron.core.enums import ModelType
+from megatron.bridge import AutoBridge
+from megatron.bridge.training.model_load_save import load_model_config, temporary_distributed_context
+from megatron.bridge.training.checkpointing import _load_model_weights_from_checkpoint
+from pretrain_gpt_for_wbl import model_provider_with_args
+from .wbl_bridge import WBLBridge   # register bridge
+
+DIR_SETTINGS = "settings"
+DIR_HF = "hf"
 
 
-BACKEND = "nccl"
+def _create_hf_config(model, save_directory):
+    config = {
+        "auto_map": {
+            "AutoConfig": "configuration_wbl.WBLConfig",
+            "AutoModel": "modeling_wbl.WBLModel",
+            "AutoModelForCausalLM": "modeling_wbl.WBLForCausalLM"
+        },
+        "architectures": ["WBLForCausalLM"],
+        "model_type": "wbl",
+        "hidden_act": "silu",
+        "attention_bias": False,
+        "attention_dropout": model.config.attention_dropout,
+        "initializer_range": model.config.init_method_std,
+        "num_hidden_layers": model.config.num_layers,
+        "first_k_dense_replace": sum(1 for _ in takewhile(lambda x: x == 0, model.config.moe_layer_freq)),
+        "hidden_size": model.config.hidden_size,
+        "intermediate_size": model.config.ffn_hidden_size,
+        "moe_intermediate_size": model.config.moe_ffn_hidden_size,
+        "n_routed_experts": model.config.num_moe_experts,
+        "n_shared_experts": 1,
+        "num_experts_per_tok": model.config.moe_router_topk,
+        "norm_topk_prob": True,
+        "routed_scaling_factor": model.config.moe_router_topk_scaling_factor or 1.0,
+        "sliding_window": model.config.window_size[0],
+        "num_attention_heads": model.config.num_attention_heads,
+        "qk_nope_head_dim": model.config.qk_head_dim,
+        "qk_rope_head_dim": model.config.qk_pos_emb_head_dim,
+        "v_head_dim": model.config.v_head_dim,
+        "q_lora_rank": model.config.q_lora_rank,
+        "kv_lora_rank": model.config.kv_lora_rank,
+        "rms_norm_eps": model.config.layernorm_epsilon,
+        "rope_interleave": True,
+        "rope_scaling": None,
+        "rope_theta_global": float(model.config.rotary_base_global),
+        "rope_theta_local": float(model.config.rotary_base),
+        "max_position_embeddings": model.max_position_embeddings,
+        "tie_word_embeddings": model.share_embeddings_and_output_weights,
+        "vocab_size": model.vocab_size,
+        "bos_token_id": 1,
+        "eos_token_id": 2,
+        "torch_dtype": "bfloat16",
+        "transformers_version": "4.53.3",
+    }
+    with open(f"{save_directory}/config.json", "w") as w:
+        json.dump(config, w, indent=2)
 
 
-def provider_to_config(model, save_directory):
-    pass
-
-
-def copy_codes(save_directory):
-    os.makedirs(save_directory, exist_ok=True)
+def _copy_codes(save_directory):
     shutil.copy("./bridge/configuration_wbl.py", f"{save_directory}/")
     shutil.copy("./bridge/modeling_wbl.py", f"{save_directory}/")
 
 
-def copy_tokenizer_files(tokenizer_path, save_directory):
-    os.makedirs(save_directory, exist_ok=True)
+def _copy_tokenizer_files(tokenizer_path, save_directory):
     for item in os.listdir(tokenizer_path):
         shutil.copy(f"{tokenizer_path}/{item}", f"{save_directory}/")
 
 
-def save_model_shard_idx(model, save_directory):
-    from huggingface_hub import split_torch_state_dict_into_shards
-    from transformers.utils import SAFE_WEIGHTS_NAME, SAFE_WEIGHTS_INDEX_NAME
-
+def _save_model_shard_idx(model, save_directory):
     state_dict = model.state_dict()
     weights_name = SAFE_WEIGHTS_NAME
     filename_pattern = weights_name.replace(".safetensors", "{suffix}.safetensors")
@@ -45,42 +94,34 @@ def save_model_shard_idx(model, save_directory):
             f.write(content)
 
 
-def create_dummy_model(save_directory):
-    from accelerate import init_empty_weights
-    from transformers import AutoModelForCausalLM, AutoConfig
-    # from transformers import DeepseekV3Config
+def preprocess(megatron_model, args):
+    setting_path = f"{args.hf_model_path}/{DIR_SETTINGS}"
+    os.makedirs(setting_path, exist_ok=True)
 
-    config = AutoConfig.from_pretrained(save_directory, trust_remote_code=True)
-    # config = DeepseekV3Config(num_hidden_layers=2)
+    _copy_codes(setting_path)
+    _copy_tokenizer_files(args.tokenizer_path, setting_path)
+
+    _create_hf_config(megatron_model, setting_path)
+
+    config = AutoConfig.from_pretrained(setting_path, trust_remote_code=True)
     with init_empty_weights():
         model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
-    save_model_shard_idx(model, save_directory)    
+    _save_model_shard_idx(model, setting_path)
 
 
 def megatron_to_hf(model, save_directory):
-    from megatron.bridge import AutoBridge
-
-    torch.cuda.set_device(0)
-    torch.distributed.init_process_group(BACKEND)
-    parallel_state.initialize_model_parallel()
-
-    output_path = f"{save_directory}/hf"
-    bridge = AutoBridge.from_hf_pretrained(save_directory, trust_remote_code=True)
+    setting_path = f"{save_directory}/{DIR_SETTINGS}"
+    output_path = f"{save_directory}/{DIR_HF}"
+    bridge = AutoBridge.from_hf_pretrained(setting_path, trust_remote_code=True)
     bridge.save_hf_pretrained([model], output_path)
-    copy_codes(output_path)
+    _copy_codes(output_path)
 
 
-def load_megatron_model(checkpoint_path):
-    from megatron.bridge.training.model_load_save import load_model_config, temporary_distributed_context
-    from megatron.bridge.training.mlm_compat.arguments import _tokenizer_config_from_args
-    from megatron.bridge.training.checkpointing import _load_model_weights_from_checkpoint
-    from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
-    from megatron.bridge.utils.vocab_utils import calculate_padded_vocab_size
-    from megatron.core.enums import ModelType
-    from pretrain_gpt_for_wbl import model_provider_with_args
+def load_megatron_model(args):
+    _, mlm_args = load_model_config(args.megatron_model_path)
+    mlm_args.use_cpu_initialization = args.use_cpu_initialization
 
-    _, mlm_args = load_model_config(checkpoint_path)
-
+    # TODO: parallel conversion
     mlm_args.context_parallel_size = 1
     mlm_args.expert_model_parallel_size = 1
     mlm_args.expert_tensor_parallel_size = 1
@@ -88,40 +129,26 @@ def load_megatron_model(checkpoint_path):
     mlm_args.tensor_model_parallel_size = 1
     mlm_args.transformer_pipeline_model_parallel_size = 1
 
-    with temporary_distributed_context(backend=BACKEND):
-        cfg = _tokenizer_config_from_args(mlm_args)
-        tokenizer = build_tokenizer(cfg)
-        vocab_size = tokenizer.vocab_size
-
-        mlm_args.padded_vocab_size = calculate_padded_vocab_size(
-            vocab_size,
-            mlm_args.make_vocab_size_divisible_by,
-            tensor_model_parallel_size = 1,
-        )
-        # with torch.device("meta"):
-        pre_process = parallel_state.is_pipeline_first_stage()
-        post_process = parallel_state.is_pipeline_last_stage()
-        model = model_provider_with_args(mlm_args, pre_process=pre_process, post_process=post_process)
-        model.model_type = ModelType.encoder_or_decoder
-        _load_model_weights_from_checkpoint(checkpoint_path, [model])
+    # with torch.device("meta"):
+    pre_process = parallel_state.is_pipeline_first_stage()
+    post_process = parallel_state.is_pipeline_last_stage()
+    model = model_provider_with_args(mlm_args, pre_process=pre_process, post_process=post_process)
+    model.model_type = ModelType.encoder_or_decoder
+    _load_model_weights_from_checkpoint(args.megatron_model_path, [model])
     return model
 
 
 if __name__ == "__main__":
-    from .wbl_bridge import WBLBridge     # register bridge
-    import argparse
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--hf-model-path", type=str)
     parser.add_argument("--megatron-model-path", type=str)
     parser.add_argument("--tokenizer-path", type=str)
+    parser.add_argument('--no-use-cpu-initialization', action='store_false', dest='use_cpu_initialization')
     args = parser.parse_args()
 
-    copy_codes(args.hf_model_path)
-    copy_tokenizer_files(args.tokenizer_path, args.hf_model_path)
-
-    megatron_model = load_megatron_model(args.megatron_model_path)
-    provider_to_config(megatron_model, args.hf_model_path)
-    create_dummy_model(args.hf_model_path)
-
-    megatron_to_hf(megatron_model, args.hf_model_path)
+    # TODO: run without torchrun
+    backend = "gloo" if args.use_cpu_initialization else "nccl"
+    with temporary_distributed_context(backend):
+        megatron_model = load_megatron_model(args)
+        preprocess(megatron_model, args)
+        megatron_to_hf(megatron_model, args.hf_model_path)
