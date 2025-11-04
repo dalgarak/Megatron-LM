@@ -1,3 +1,4 @@
+import time
 import os
 import shutil
 import json
@@ -146,9 +147,11 @@ if __name__ == "__main__":
     parser.add_argument('--no-use-cpu-initialization', action='store_false', dest='use_cpu_initialization')
     args = parser.parse_args()
 
+    start = time.time()
     # TODO: run without torchrun
     backend = "gloo" if args.use_cpu_initialization else "nccl"
     with temporary_distributed_context(backend):
         megatron_model = load_megatron_model(args)
         preprocess(megatron_model, args)
         megatron_to_hf(megatron_model, args.hf_model_path)
+    print("Elapsed time:", time.time() - start)
