@@ -499,6 +499,7 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler, num_floati
         )
 
         state_dict['num_floating_point_operations_so_far'] = num_floating_point_operations_so_far
+        print_rank_0(f"NOTICE: # OF FLOATING POINT OPERATIONS SO FAR: {num_floating_point_operations_so_far}")
         if ckpt_type == CheckpointType.GLOBAL and ckpt_format == "torch_dist":
             if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
                 # TODO Handle non-empty directories (e.g., after a crash during saving).
@@ -1335,7 +1336,7 @@ def load_checkpoint(ddp_model, optimizer, opt_param_scheduler, load_arg='load', 
             strict=strict,
             load_arg=load_arg
         )
-        
+
         # Since load_modelopt_checkpoint doesn't return iteration count, we need to get it
         if torch.distributed.is_initialized():
             tracker_filename = get_checkpoint_tracker_filename(load_dir)
@@ -1347,7 +1348,7 @@ def load_checkpoint(ddp_model, optimizer, opt_param_scheduler, load_arg='load', 
                 iteration = 0
         else:
             iteration = 0
-        
+
         # We don't have a reliable way to get num_floating_point_operations_so_far from ModelOpt format
         return iteration, 0
 
