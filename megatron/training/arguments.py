@@ -1209,8 +1209,8 @@ def core_transformer_config_from_args(args, config_class=None):
         kw_args['quant_recipe'] = kitchen_quantization_recipe_config(args.kitchen_recipe_number)
 
     # JHSHIN added. 추후 옵션이 새로 들어오면 사라져야 함.
-    kw_args['window_size'] = (getattr(args, "sliding_window_size", 512), 0)
-    kw_args['interleaved_attn_pattern'] = (getattr(args, "sliding_window_interleave_k", 6) - 1, 1)
+    kw_args['window_size'] = (getattr(args, "sliding_window_size", None) or 512, 0)
+    kw_args['interleaved_attn_pattern'] = ((getattr(args, "sliding_window_interleave_k", None) or 6) - 1, 1)
 
     # Return config.
     return config_class(**kw_args)
