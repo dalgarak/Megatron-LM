@@ -218,16 +218,18 @@ class TELinear(te.pytorch.Linear):
         input_size: int,
         output_size: int,
         *,
-        parallel_mode: Optional[str],
         config: ModelParallelConfig,
         init_method: Callable,
         bias: bool,
         skip_bias_add: bool,
-        skip_weight_param_allocation: bool,
+        parallel_mode: Optional[str] = None,
+        skip_weight_param_allocation: bool = False,
         tp_comm_buffer_name: Optional[str] = None,
         is_expert: bool = False,
         symmetric_ar_type: Optional[str] = None,
         tp_group: Optional[torch.distributed.ProcessGroup] = None,
+        gather_output: Optional[bool] = None,               # JHSHIN; useless, just for api compatibility.
+        input_is_parallel: Optional[bool] = None,           # JHSHIN; useless, just for api compatibility.
     ):
         if not HAVE_TE:
             raise ImportError(
