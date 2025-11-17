@@ -432,6 +432,18 @@ class TransformerLayer(MegatronModule, BaseTransformerLayer):
                             )
 
                             set_save_original_input(self.mlp.linear_fc1)
+                if not isinstance(self.post_mlp_layernorm, IdentityOp):
+                    # JHSHIN ADDED. 25.11.18
+                    self.recompute_post_mlp_layernorm = True
+                    if self.config.fp8:
+                        if isinstance(self.mlp, MoELayer):
+                            self.mlp.set_for_recompute_post_mlp_layernorm()
+                        else:
+                            from megatron.core.extensions.transformer_engine import (
+                                set_save_original_input,
+                            )
+
+                            set_save_original_input(self.mlp.linear_fc2)
             if "mlp" in self.config.recompute_modules:
                 if not isinstance(self.mlp, MoELayer):
                     self.recompute_mlp = True
