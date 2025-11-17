@@ -864,7 +864,9 @@ class Attention(MegatronModule, ABC):
 
     def set_for_recompute_input_layernorm(self):
         """Set the attention layer for recompute input_layernorm. Only needed for fp8."""
-        raise NotImplementedError("set_for_recompute_input_layernorm is not implemented.")
+        from megatron.core.extensions.transformer_engine import set_save_original_input
+
+        set_save_original_input(self.linear_proj)
 
 
 class SelfAttention(Attention):
