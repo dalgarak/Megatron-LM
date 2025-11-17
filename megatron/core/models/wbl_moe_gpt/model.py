@@ -7,7 +7,6 @@ from torch import Tensor
 from megatron.core import parallel_state, tensor_parallel
 from megatron.core.fusions.fused_bias_dropout import get_bias_dropout_add
 from megatron.core.models.backends import BackendSpecProvider, LocalSpecProvider
-from megatron.core.models.gpt.moe_module_specs import get_moe_module_spec_for_backend
 from megatron.core.models.gpt.gpt_layer_specs import get_mlp_module_spec_for_backend
 from megatron.core.transformer.attention import SelfAttention, SelfAttentionSubmodules
 from megatron.core.transformer.enums import AttnMaskType, LayerType
@@ -236,7 +235,7 @@ class LocalGlobalYarnRotaryEmbedding(YarnRotaryEmbedding):
 
 
 # 베이스는 megatron.core.transformer.multi_latent_attention의 MultiLatentAttention을 상속,
-# 임베딩만 덮어 쓰는 방법으로 구현함. 
+# 임베딩만 덮어 쓰는 방법으로 구현함.
 # CHECKME: Megatron-LM 버전 업 시 원래 클래스의 self.rotary_pos_emb 생성 루틴을 반영해야 함.
 class LocalGlobalMultiLatentAttention(MultiLatentAttention):
     def __init__(
@@ -281,7 +280,7 @@ class LocalGlobalMultiLatentAttention(MultiLatentAttention):
             )
 
 
-# 나머지는 그대로 사용하고, get_query_key_value_tensors()만 위에 맞게 변경. 
+# 나머지는 그대로 사용하고, get_query_key_value_tensors()만 위에 맞게 변경.
 # 베이스는 megatron.core.transformer.multi_latent_attention의 MLASelfAttention 정의를 가져옴
 # CHECKME: __init__()를 포함 하위 구현을 최신에 맞게 다시 업데이트 필요.
 # 다중 상속으로 깔끔하게 해결 가능한지 체크.
@@ -714,7 +713,7 @@ class LocalGlobalMLASelfAttention(LocalGlobalMultiLatentAttention):
         self.linear_proj.backward_dw()
 
 
-# get_gpt_layer_with_transformer_engine_spec()의 수정 버전. 
+# get_gpt_layer_with_transformer_engine_spec()의 수정 버전.
 def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
     num_experts: Optional[int] = None,
     moe_grouped_gemm: Optional[bool] = False,
@@ -726,6 +725,7 @@ def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
     use_te_op_fuser: Optional[bool] = False,
     use_kitchen: bool = False,
     use_post_layernorm: bool = True,
+    disable_parallism_for_shared_expert: bool = False,
 ) -> ModuleSpec:
     """Use this spec to use lower-level Transformer Engine modules (required for fp8 training).
 
@@ -766,6 +766,7 @@ def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
         moe_grouped_gemm=moe_grouped_gemm,
         moe_use_legacy_grouped_gemm=moe_use_legacy_grouped_gemm,
         use_te_op_fuser=use_te_op_fuser,
+        disable_parallism_for_shared_expert=disable_parallism_for_shared_expert,
     )
 
     if multi_latent_attention:
@@ -861,6 +862,12 @@ def get_wbl_moe_gpt_decoder_block_spec(
     qk_l2_norm: Optional[bool] = False,
     vp_stage: Optional[int] = None,
 ) -> TransformerBlockSubmodules:
+    disable_parallism_for_shared_expert = False
+
+    if config.tensor_model_parallel_size != config.expert_tensor_parallel_size:
+        print("***** WARNING: tensor_model_parallel_size != expert_tensor_parallel_size, disable parallism for shared expert.")
+        disable_parallism_for_shared_expert = True
+
     """GPT block spec."""
     if use_transformer_engine:
         # MoE 구현이기 때문에 여기를 사용한다.
@@ -874,6 +881,7 @@ def get_wbl_moe_gpt_decoder_block_spec(
             moe_use_legacy_grouped_gemm=config.moe_use_legacy_grouped_gemm,
             qk_l2_norm=qk_l2_norm,
             use_kitchen=config.use_kitchen,
+            disable_parallism_for_shared_expert=False,
         )
         moe_layer_spec = get_wbl_moe_gpt_layer_with_transformer_engine_spec(
             num_experts=config.num_moe_experts,
@@ -883,6 +891,7 @@ def get_wbl_moe_gpt_decoder_block_spec(
             moe_use_legacy_grouped_gemm=config.moe_use_legacy_grouped_gemm,
             qk_l2_norm=qk_l2_norm,
             use_kitchen=config.use_kitchen,
+            disable_parallism_for_shared_expert=disable_parallism_for_shared_expert,
         )
     else:
         layer_norm_impl = LNImpl
