@@ -41,7 +41,6 @@ from megatron.core.models.common.embeddings import (
     RotaryEmbedding,
     YarnRotaryEmbedding,
     _yarn_get_mscale,
-    LocalGlobalYarnRotaryEmbedding,
     apply_rotary_pos_emb,
 )
 from megatron.core.process_groups_config import ModelCommProcessGroups
@@ -177,6 +176,58 @@ class LocalGlobalRotaryEmbedding(RotaryEmbedding):
         rope_global = super().forward(max_seq_len, offset, packed_seq)
         rope_local = self.rope_local.forward(max_seq_len, offset, packed_seq)
         return rope_local, rope_global
+
+
+# YARN for Local-Global Interleaving.
+class LocalGlobalYarnRotaryEmbedding(YarnRotaryEmbedding):
+    def __init__(
+        self,
+        kv_channels: int,
+        rotary_percent: float = 1.0,
+        rotary_interleaved: bool = False,
+        seq_len_interpolation_factor: Optional[float] = None,
+        rotary_base: float = 10000.0,
+        use_cpu_initialization: bool = False,
+        scaling_factor: float = 1.0,
+        original_max_position_embeddings: int = 4096,
+        beta_fast: float = 32.0,
+        beta_slow: float = 1.0,
+        mscale: float = 1.0,
+        mscale_all_dim: float = 0.0,
+        rotary_base_global: float = 1_000_000.0,
+        cp_group: Optional[torch.distributed.ProcessGroup] = None,
+    ):
+        super().__init__(
+            kv_channels=kv_channels,
+            rotary_percent=rotary_percent,
+            rotary_interleaved=rotary_interleaved,
+            seq_len_interpolation_factor=seq_len_interpolation_factor,
+            rotary_base=rotary_base,
+            use_cpu_initialization=use_cpu_initialization,
+            scaling_factor=scaling_factor,
+            original_max_position_embeddings=original_max_position_embeddings,
+            beta_fast=beta_fast,
+            beta_slow=beta_slow,
+            mscale=mscale,
+            mscale_all_dim=mscale_all_dim,
+            cp_group=cp_group,
+        )
+
+        # Setup Rotary Embedding for local attentions
+        self.rope_local = RotaryEmbedding(
+            kv_channels, rotary_percent,
+            rope_scaling=False,
+            rotary_interleaved=False,
+            seq_len_interpolation_factor=None,
+            rotary_base=10_000,             # 변동없이 사용하게
+            rope_scaling_factor=1.0,        # 변동없이 사용하게
+            use_cpu_initialization=use_cpu_initialization,
+            cp_group=cp_group,
+        )
+
+    @lru_cache(maxsize=32)
+    def forward_local(self, max_seq_len: int, offset: int = 0, packed_seq: bool = False) -> Tensor:
+        return self.rope_local.forward(max_seq_len, offset, packed_seq)
 
 
 # 베이스는 megatron.core.transformer.multi_latent_attention의 MultiLatentAttention을 상속,
