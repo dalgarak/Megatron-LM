@@ -3,6 +3,7 @@ import os
 import shutil
 import json
 import argparse
+import math
 from itertools import takewhile
 from accelerate import init_empty_weights
 from huggingface_hub import split_torch_state_dict_into_shards
@@ -77,12 +78,28 @@ def _copy_tokenizer_files(tokenizer_path, save_directory):
         shutil.copy(f"{tokenizer_path}/{item}", f"{save_directory}/")
 
 
-def _save_model_shard_idx(model, save_directory):
+def _get_max_shard_size(megatron_model_path):
+    size = 0
+    for name in os.listdir(megatron_model_path):
+        fp = os.path.join(megatron_model_path, name)
+        if os.path.isfile(fp) and name.endswith(".distcp"):
+            size += os.path.getsize(fp)
+    if size >= 5 * 1024 ** 3:
+        return "5GB"
+    for unit in ["B", "KB", "MB", "GB"]:
+        if size < 1024:
+            size = math.ceil(size / 2)
+            return f"{size}{unit}"
+        size /= 1024
+
+
+def _save_model_shard_idx(model, save_directory, args):
     state_dict = model.state_dict()
     weights_name = SAFE_WEIGHTS_NAME
     filename_pattern = weights_name.replace(".safetensors", "{suffix}.safetensors")
+    max_shard_size = _get_max_shard_size(args.megatron_model_path)
     state_dict_split = split_torch_state_dict_into_shards(
-        state_dict, filename_pattern=filename_pattern, max_shard_size="5GB"
+        state_dict, filename_pattern=filename_pattern, max_shard_size=max_shard_size
     )
     if state_dict_split.is_sharded:
         index = {
@@ -107,7 +124,7 @@ def preprocess(megatron_model, args):
     config = AutoConfig.from_pretrained(setting_path, trust_remote_code=True)
     with init_empty_weights():
         model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
-    _save_model_shard_idx(model, setting_path)
+    _save_model_shard_idx(model, setting_path, args)
 
 
 def megatron_to_hf(model, save_directory):
