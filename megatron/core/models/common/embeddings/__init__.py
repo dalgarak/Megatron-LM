@@ -2,4 +2,4 @@
 
 from .rope_utils import apply_rotary_pos_emb
 from .rotary_pos_embedding import MultimodalRotaryEmbedding, RotaryEmbedding
-from .yarn_rotary_pos_embedding import YarnRotaryEmbedding, _yarn_get_mscale, LocalGlobalYarnRotaryEmbedding
+from .yarn_rotary_pos_embedding import YarnRotaryEmbedding, _yarn_get_mscale
