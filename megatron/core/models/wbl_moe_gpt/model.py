@@ -155,6 +155,7 @@ class LocalGlobalRotaryEmbedding(RotaryEmbedding):
         )
         # 여기서 scaling factor로 inv_freq를 수정한다. 주의: 1단계 사전학습에서는 scaling_factor를 1.0으로 해야 한다.
         # 3단계 길이를 보상하는 500B 토큰 학습 단계 때 scaling factor를 8로 수정하여 학습해야 함.
+        # 글로벌에는 이미 적용되어 있음. -> 더 이상 수정하면 안됨.
         self.inv_freq /= rope_scaling_factor
 
         # Setup Rotary Embedding for local attentions
@@ -211,18 +212,16 @@ class LocalGlobalYarnRotaryEmbedding(YarnRotaryEmbedding):
             beta_fast=beta_fast, beta_slow=beta_slow, mscale=mscale, mscale_all_dim=mscale_all_dim,
             cp_group=cp_group,
         )
-        # CHECKME: YaRN의 특성상 여기서 다시 수정하면 X
-        #self.inv_freq /= scaling_factor
 
         # Setup Rotary Embedding for local attentions
-        self.rope_local = YarnRotaryEmbedding(
-            kv_channels,
-            rotary_percent=rotary_percent, rotary_interleaved=False,
+        self.rope_local = RotaryEmbedding(
+            kv_channels, rotary_percent,
+            rope_scaling=False,
+            rotary_interleaved=False,
             seq_len_interpolation_factor=seq_len_interpolation_factor,
             rotary_base=rotary_base,
-            scaling_factor=scaling_factor,
-            original_max_position_embeddings=original_max_position_embeddings,
-            beta_fast=beta_fast, beta_slow=beta_slow, mscale=mscale, mscale_all_dim=mscale_all_dim,
+            rope_scaling_factor=1.0,
+            use_cpu_initialization=use_cpu_initialization,
             cp_group=cp_group,
         )
 
@@ -458,7 +457,6 @@ class LocalGlobalMLASelfAttention(LocalGlobalMultiLatentAttention):
                 rotary_pos_emb = rotary_pos_emb[0]
             else:
                 rotary_pos_emb = rotary_pos_emb[1]
-
         else:
             # JHSHIN, yarn 등의 non-vanilla rope를 위함.
             if self.config.apply_rope_fusion:
