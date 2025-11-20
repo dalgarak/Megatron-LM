@@ -458,6 +458,7 @@ class LocalGlobalMLASelfAttention(LocalGlobalMultiLatentAttention):
             # JHSHIN, yarn 등의 non-vanilla rope를 위함.
             if self.config.apply_rope_fusion:
                 # FIXME: 이 부분은 아직 수정되지 않음. 수정 필요함. rope fusion을 사용하지 않기 때문에 일단은 제거.
+                raise NotImplementedError
                 rotary_pos_cos, rotary_pos_sin = self.rotary_pos_emb.get_cached_cos_sin(
                     rotary_seq_len, dtype=hidden_states.dtype, packed_seq=packed_seq
                 )
