@@ -11,6 +11,7 @@ from transformers.utils import SAFE_WEIGHTS_NAME, SAFE_WEIGHTS_INDEX_NAME
 from transformers import AutoModelForCausalLM, AutoConfig
 from megatron.core import parallel_state
 from megatron.core.enums import ModelType
+from megatron.training.arguments import add_megatron_arguments
 from megatron.bridge import AutoBridge
 from megatron.bridge.training.model_load_save import load_model_config, temporary_distributed_context
 from megatron.bridge.training.checkpointing import _load_model_weights_from_checkpoint
@@ -135,8 +136,16 @@ def megatron_to_hf(model, save_directory):
     _copy_codes(output_path)
 
 
+def _merge_missing(src, dst):
+    for k, v in vars(src).items():
+        if not hasattr(dst, k):
+            setattr(dst, k, v)
+
+
 def load_megatron_model(args):
+    defaults = add_megatron_arguments(argparse.ArgumentParser(allow_abbrev=False)).parse_args([])
     _, mlm_args = load_model_config(args.megatron_model_path)
+    _merge_missing(defaults, mlm_args)
     mlm_args.use_cpu_initialization = args.use_cpu_initialization
 
     # TODO: parallel conversion
