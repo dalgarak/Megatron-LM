@@ -2810,6 +2810,7 @@ def _add_moe_args(parser):
                        help='Enable overlapping between shared expert computations and dispatcher communications. '
                        'Without this, the shared epxerts execute after the routed experts. '
                        'Only effective when moe-shared-expert-intermediate-size is set.')
+    group.add_argument('--disable-tp-for-moe-shared-expert', action='store_false', dest='tp_for_moe_shared_expert')
     group.add_argument('--moe-grouped-gemm', action='store_true',
                        help='When there are multiple experts per rank, launch multiple local GEMM kernels in multiple streams to improve the utilization and performance with GroupedLinear in TransformerEngine.')
     group.add_argument('--moe-use-legacy-grouped-gemm', action='store_true',
