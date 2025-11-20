@@ -2,7 +2,6 @@
 
 """ State dict saver for PyT Distributed format allowing asynchronous save. """
 
-import pickle
 from logging import getLogger
 from time import time
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union

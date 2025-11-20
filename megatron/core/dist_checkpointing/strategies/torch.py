@@ -40,7 +40,7 @@ from torch.distributed.checkpoint._traverse import OBJ_PATH, traverse_state_dict
 from torch.distributed.checkpoint.metadata import Metadata
 from torch.distributed.checkpoint.planner_helpers import _create_write_items
 
-#from ...parallel_state import get_world_group_gloo
+from ...parallel_state import get_world_group_gloo
 from ...utils import get_torch_version, is_torch_min_version
 from ..core import CheckpointingException
 from ..dict_utils import nested_values
@@ -750,8 +750,7 @@ class TorchDistSaveShardedStrategy(AsyncSaveShardedStrategy):
 
         # JHSHIN, host-host gather_object()를 위해 None -> Gloo backend를 명시적으로 쓰도록 변경
         # naver cloud/mlx 에서 학습을 위함.
-        #gloo_pg = get_world_group_gloo()
-        gloo_pg = None
+        gloo_pg = get_world_group_gloo()
 
         (
             save_state_dict_ret,
@@ -922,8 +921,7 @@ class TorchDistLoadShardedStrategy(LoadShardedStrategy):
         # Load PyT Distributed format
         # jhshin, host-to-host scatter_object()를 위해 None -> Gloo backend를 사용하게 변경.
         # naver cloud/mlx 에서 학습을 위함.
-        #gloo_pg = get_world_group_gloo()
-        gloo_pg = None
+        gloo_pg = get_world_group_gloo()
 
         fsr = _get_filesystem_reader(checkpoint_dir, cache_metadata=True)
         checkpoint.load_state_dict(
