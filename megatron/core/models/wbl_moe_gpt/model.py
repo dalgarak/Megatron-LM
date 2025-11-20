@@ -202,7 +202,7 @@ class LocalGlobalYarnRotaryEmbedding(YarnRotaryEmbedding):
             rotary_percent=rotary_percent,
             rotary_interleaved=rotary_interleaved,
             seq_len_interpolation_factor=seq_len_interpolation_factor,
-            rotary_base=rotary_base,
+            rotary_base=rotary_base_global,
             use_cpu_initialization=use_cpu_initialization,
             scaling_factor=scaling_factor,
             original_max_position_embeddings=original_max_position_embeddings,
@@ -219,7 +219,7 @@ class LocalGlobalYarnRotaryEmbedding(YarnRotaryEmbedding):
             rope_scaling=False,
             rotary_interleaved=False,
             seq_len_interpolation_factor=None,
-            rotary_base=10_000,             # 변동없이 사용하게
+            rotary_base=rotary_base,        # 변동없이 사용하게
             rope_scaling_factor=1.0,        # 변동없이 사용하게
             use_cpu_initialization=use_cpu_initialization,
             cp_group=cp_group,
