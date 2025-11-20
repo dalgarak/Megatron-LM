@@ -109,7 +109,9 @@ def save_state_dict_async_plan(
         # we have to reference `is_coordinator` args by name
         planner.set_up_planner(state_dict, is_coordinator=dist_wrapper.is_coordinator)
         storage_writer.set_up_storage_writer(dist_wrapper.is_coordinator)
+        # JHSHIN; OR이 되어야 하지 않나?
         if not validated_cache_reuse and local_plan is None:
+            logger.debug(f"rank: {rank}, in local_step(), create_local_plan() called.")
             local_plan = planner.create_local_plan()
         local_plan = storage_writer.prepare_local_plan(local_plan)
         return local_plan

@@ -19,6 +19,8 @@ try:
 except ImportError:
     HAVE_EINOPS = False
 
+# JHSHIN, World Group w/Gloo backend.
+#_WORLD_GROUP_GLOO = None
 
 # Intra-layer model parallel group that the current rank belongs to.
 _TENSOR_MODEL_PARALLEL_GROUP = None
@@ -731,6 +733,7 @@ def initialize_model_parallel(
     timeout = timedelta(minutes=distributed_timeout_minutes)
 
     # Build the data-parallel groups.
+    #global _WORLD_GROUP_GLOO        # jhshin added.
     global _DATA_PARALLEL_GROUP
     global _DATA_PARALLEL_GROUP_GLOO
     global _DATA_PARALLEL_GLOBAL_RANKS
@@ -740,6 +743,13 @@ def initialize_model_parallel(
     global _INTRA_PARTIAL_DATA_PARALLEL_GROUP_WITH_CP
     global _INTRA_PARTIAL_DATA_PARALLEL_GROUP_WITH_CP_GLOO
     assert _DATA_PARALLEL_GROUP is None, "data parallel group is already initialized"
+
+    """
+    _WORLD_GROUP_GLOO = create_group(
+        timeout=timeout,
+        backend="gloo",
+        group_desc="WORLD_GROUP_GLOO",)
+    """
 
     assert (
         data_parallel_size * context_parallel_size
@@ -1265,6 +1275,14 @@ def model_parallel_is_initialized():
     ):
         return False
     return True
+
+"""
+def get_world_group_gloo(check_initialized=True):
+    # Get the world group w/gloo backend the caller rank belongs to.
+    if check_initialized:
+        assert _WORLD_GROUP_GLOO is not None, "world group w/gloo backend is not initialized"
+    return _WORLD_GROUP_GLOO
+"""
 
 def get_model_parallel_group(check_initialized=True):
     """Get the model-parallel group the caller rank belongs to."""
@@ -1905,6 +1923,17 @@ def get_all_ranks():
 
 def destroy_model_parallel():
     """Set the groups to none."""
+    """
+    global _WORLD_GROUP_GLOO
+    if (
+        _WORLD_GROUP_GLOO is not None
+        and torch.distributed.distributed_c10d._world.pg_map.get(_WORLD_GROUP_GLOO, None)
+        is not None
+    ):
+        torch.distributed.destroy_process_group(_WORLD_GROUP_GLOO)
+    _WORLD_GROUP_GLOO = None
+    """
+
     global _MODEL_PARALLEL_GROUP
     _MODEL_PARALLEL_GROUP = None
 
