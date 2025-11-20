@@ -209,7 +209,7 @@ class Attention(MegatronModule, ABC):
             set_save_original_input(self.linear_proj)
 
         # POST-LN, JHSHIN.
-        if submodules.post_attn_layernorm is None:
+        if submodules.post_attn_layernorm is None and HAVE_TE:
             submodules.post_attn_layernorm = TENorm
         self.post_attn_layernorm = build_module(
             submodules.post_attn_layernorm,
@@ -864,7 +864,9 @@ class Attention(MegatronModule, ABC):
 
     def set_for_recompute_input_layernorm(self):
         """Set the attention layer for recompute input_layernorm. Only needed for fp8."""
-        raise NotImplementedError("set_for_recompute_input_layernorm is not implemented.")
+        from megatron.core.extensions.transformer_engine import set_save_original_input
+
+        set_save_original_input(self.linear_proj)
 
 
 class SelfAttention(Attention):

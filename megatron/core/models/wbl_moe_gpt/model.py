@@ -857,6 +857,12 @@ def get_wbl_moe_gpt_decoder_block_spec(
     vp_stage: Optional[int] = None,
     disable_parallism_for_shared_expert: bool = False,
 ) -> TransformerBlockSubmodules:
+    disable_parallism_for_shared_expert = False
+
+    if config.tensor_model_parallel_size != config.expert_tensor_parallel_size:
+        print("***** WARNING: tensor_model_parallel_size != expert_tensor_parallel_size, disable parallism for shared expert.")
+        disable_parallism_for_shared_expert = True
+
     """GPT block spec."""
     if use_transformer_engine:
         # MoE 구현이기 때문에 여기를 사용한다.

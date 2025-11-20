@@ -2557,7 +2557,6 @@ def evaluate_and_print_results(
 ):
     """Helper function to evaluate and dump results on screen."""
     args = get_args()
-    eval_iters = args.eval_iters
     if write_to_tensorboard:
         writer = get_tensorboard_writer()
     else:

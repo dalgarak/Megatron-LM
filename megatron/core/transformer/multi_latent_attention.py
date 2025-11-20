@@ -189,9 +189,9 @@ class MultiLatentAttention(Attention):
             # linear_proj to save the original input tensors to avoid the extra memory usage of
             # the quantized tensor.
             set_save_original_input(self.linear_proj)
-
         # POST-LN, JHSHIN.
-        if submodules.post_attn_layernorm is None:
+
+        if submodules.post_attn_layernorm is None and HAVE_TE:
             submodules.post_attn_layernorm = TENorm
         self.post_attn_layernorm = build_module(
             submodules.post_attn_layernorm,

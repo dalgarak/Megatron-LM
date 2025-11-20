@@ -11,6 +11,7 @@ from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple, TypeVar, c
 import numpy as np
 import torch
 
+from ..parallel_state import get_world_group_gloo 
 from ..utils import get_pg_rank, get_pg_size
 from .core import CheckpointingException
 from .dict_utils import nested_values
@@ -435,7 +436,9 @@ def exchange_loaded_objects_gather_object(
          load a given state dict.
     """
     all_loaded_objects_list = [None] * torch.distributed.get_world_size()
-    torch.distributed.all_gather_object(all_loaded_objects_list, loaded_objects, group=None)
+    # JHSHIN, enforces to use GLOO backend.
+    #torch.distributed.all_gather_object(all_loaded_objects_list, loaded_objects, group=None)
+    torch.distributed.all_gather_object(all_loaded_objects_list, loaded_objects, group=get_world_group_gloo())
     all_loaded_objects_list = cast(List[Dict[_ShardId, Any]], all_loaded_objects_list)
     all_loaded_objects = reduce(lambda x, y: {**x, **y}, all_loaded_objects_list)
 

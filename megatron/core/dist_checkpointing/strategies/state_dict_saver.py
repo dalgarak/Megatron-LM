@@ -144,6 +144,7 @@ def save_state_dict_async_plan(
             """
             JHSHIN
             """
+            torch.distributed.barrier()
             """
             # ========================================================
             import pickle, cloudpickle, traceback
@@ -163,9 +164,9 @@ def save_state_dict_async_plan(
             logger.debug(f"[rank {rank}] local_plan -> {check_pickleable(local_plan)}")
             # ========================================================
             """
-            logger.warning(f"rank: {rank}, @ save checkpoints; Wait gather_object;")
+            logger.warning(f"rank: {rank}, Wait gather_object;")
             all_local_plans = dist_wrapper.gather_object(local_plan)
-            logger.warning(f"rank: {rank}, @ save checkpoints; gather_object success;")
+            logger.warning(f"rank: {rank}, gather_object success;")
             if dist_wrapper.is_coordinator:
                 _, global_metadata = planner.create_global_plan(all_local_plans)
                 global_metadata.all_local_plans = all_local_plans

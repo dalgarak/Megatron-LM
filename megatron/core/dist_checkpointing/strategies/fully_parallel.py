@@ -271,6 +271,8 @@ class FullyParallelLoadStrategyWrapper(LoadShardedStrategy):
             with debug_time("torch.cuda.synchronize", logger):
                 torch.cuda.synchronize()
 
+        # JHSHIN: 이게 NCCL로 교환될 때, 이미지가 매우 크면 CUDA Out-Of-Memory가 발생하게 된다.
+        # Gloo로 대체하는 방법으로 완화할 수 있지만, 속도가 매우 느린 문제가 있다.
         all_loaded_objects = exchange_loaded_objects_gather_object(loaded_objects)
 
         if not set(unloaded_objects.keys()).issubset(all_loaded_objects.keys()):

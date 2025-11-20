@@ -301,3 +301,12 @@ class MoELayer(BaseMoELayer):
             from megatron.core.extensions.transformer_engine import set_save_original_input
 
             set_save_original_input(self.shared_experts.linear_fc1)
+
+    def set_for_recompute_post_mlp_layernorm(self):
+        """Set the MoE layer for recompute pre_mlp_layernorm. Only needed for fp8."""
+        # If shared_experts_recompute is used, nothing needs to be done because the checkpoint
+        # function will save the original input tensors.
+        if self.shared_experts is not None and not self.shared_experts_recompute:
+            from megatron.core.extensions.transformer_engine import set_save_original_input
+
+            set_save_original_input(self.shared_experts.linear_fc2)
