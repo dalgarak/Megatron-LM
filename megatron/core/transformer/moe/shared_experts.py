@@ -42,14 +42,16 @@ class SharedExpertMLP(MLP):
         submodules: MLPSubmodules,
         gate: bool,
         model_comm_pgs: Optional[ModelCommProcessGroups] = None,
+        disable_parallelism: bool = False,
     ):
         config = deepcopy(config)
+        self.disable_parallelism = disable_parallelism 
         assert config.add_bias_linear == False, "bias is not supported in the shared experts, "
         "please set '--disable-bias-linear' instead."
 
         config.ffn_hidden_size = config.moe_shared_expert_intermediate_size
         # TODO(Hepteract): pass model_comm_pgs to MLP after refactoring MLP
-        super().__init__(config=config, submodules=submodules)
+        super().__init__(config=config, submodules=submodules, disable_parallelism=disable_parallelism,)
 
         self.use_shared_expert_gate = gate
         if self.use_shared_expert_gate:
@@ -132,6 +134,13 @@ class SharedExpertMLP(MLP):
     ) -> ShardedStateDict:
         """Gets sharded state dict."""
         sharded_state_dict = super().sharded_state_dict(prefix, sharded_offsets, metadata)
+        """
+        if self.disable_parallelism:
+            for k, v in sharded_state_dict.items():
+                if k.find("mtp") > -1:
+                    raise Exception(sharded_state_dict)
+        """
+
         if self.use_shared_expert_gate:
             name = 'gate_weight'
             state_dict = self.state_dict(prefix='', keep_vars=True)

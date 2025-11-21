@@ -761,8 +761,13 @@ def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
         moe_grouped_gemm=moe_grouped_gemm,
         moe_use_legacy_grouped_gemm=moe_use_legacy_grouped_gemm,
         use_te_op_fuser=use_te_op_fuser,
-        disable_parallism_for_shared_expert=disable_parallism_for_shared_expert,
     )
+
+    # disable parallism for shared experts, via overwrite ModuleSpec
+    if disable_parallism_for_shared_expert and num_experts is not None:
+        mlp.submodules.shared_experts.submodules.linear_fc1 = backend.linear()
+        mlp.submodules.shared_experts.submodules.linear_fc2 = backend.linear()
+        mlp.submodules.shared_experts.params["disable_parallelism"] = True
 
     if multi_latent_attention:
 		# 여기를 사용한다.
@@ -858,12 +863,6 @@ def get_wbl_moe_gpt_decoder_block_spec(
     vp_stage: Optional[int] = None,
     disable_parallism_for_shared_expert: bool = False,
 ) -> TransformerBlockSubmodules:
-    disable_parallism_for_shared_expert = False
-
-    if config.tensor_model_parallel_size != config.expert_tensor_parallel_size:
-        print("***** WARNING: tensor_model_parallel_size != expert_tensor_parallel_size, disable parallism for shared expert.")
-        disable_parallism_for_shared_expert = True
-
     """GPT block spec."""
     if use_transformer_engine:
         # MoE 구현이기 때문에 여기를 사용한다.
@@ -877,7 +876,7 @@ def get_wbl_moe_gpt_decoder_block_spec(
             moe_use_legacy_grouped_gemm=config.moe_use_legacy_grouped_gemm,
             qk_l2_norm=qk_l2_norm,
             use_kitchen=config.use_kitchen,
-            disable_parallism_for_shared_expert=False,
+            disable_parallism_for_shared_expert=disable_parallism_for_shared_expert,
         )
         moe_layer_spec = get_wbl_moe_gpt_layer_with_transformer_engine_spec(
             num_experts=config.num_moe_experts,
