@@ -6,21 +6,25 @@ from torch import nn
 class RMSNorm(torch.nn.Module):
 
     def __init__(self,
-                 dim: int,
+                 hidden_size: int,
                  eps: float = 1e-6,
                  sequence_parallel: bool = False,
                  config: dict = None):
         """RMS Normaliation module
 
         Args:
-            dim (int): The width of input, i.e. hidden size
+            hidden_size (int): The width of input
             eps (float): epsilon to use for the norm, default to 1e-6
             sequence_parallel (bool): Set to true if sequence parallelism is being used,
               this marks the weights as needing to be allreduced.
         """
         super().__init__()
         self.eps = eps
-        self.weight = nn.Parameter(torch.ones(dim))
+        self.layernorm_zero_centered_gamma = config.layernorm_zero_centered_gamma
+        if self.layernorm_zero_centered_gamma:
+            self.weight = nn.Parameter(torch.zeros(hidden_size))
+        else:
+            self.weight = nn.Parameter(torch.ones(hidden_size))
 
         setattr(self.weight, 'sequence_parallel', sequence_parallel)
 
@@ -29,4 +33,5 @@ class RMSNorm(torch.nn.Module):
 
     def forward(self, x):
         output = self._norm(x.float()).type_as(x)
-        return output * self.weight
+        weight = self.weight + 1 if self.layernorm_zero_centered_gamma else self.weight
+        return output * weight

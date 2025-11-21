@@ -133,7 +133,12 @@ def model_provider(
         Union[GPTModel, megatron.legacy.model.GPTModel]: The returned model
     """
     args = get_args()
+    return model_provider_with_args(args, pre_process, post_process, vp_stage)
 
+
+def model_provider_with_args(
+    args, pre_process=True, post_process=True, vp_stage: Optional[int] = None
+) -> Union[GPTModel, megatron.legacy.model.GPTModel]:
     if has_nvidia_modelopt and modelopt_args_enabled(args):  # [ModelOpt]
         return model_provider_modelopt(pre_process, post_process)
 
@@ -184,7 +189,7 @@ def model_provider(
             if args.num_experts:
                 # Define the decoder block spec
                 transformer_layer_spec = get_wbl_moe_gpt_decoder_block_spec(
-                    config, use_transformer_engine=use_te, normalization=args.normalization, qk_l2_norm=args.qk_l2_norm, vp_stage=vp_stage
+                    config, use_transformer_engine=use_te, normalization=args.normalization, qk_l2_norm=args.qk_l2_norm, vp_stage=vp_stage, disable_parallism_for_shared_expert=not args.tp_for_moe_shared_expert
                 )
             elif args.heterogeneous_layers_config_path is not None:
                 transformer_layer_spec = get_gpt_heterogeneous_layer_spec(config, use_te)

@@ -316,31 +316,87 @@ def num_floating_point_operations(args, batch_size):
                     + args.num_attention_heads * (args.qk_head_dim + args.qk_pos_emb_head_dim)
                     + 1
                 )
-            self_attn_term = (
-                3
-                * 2  # fwd(1) + bwd(2) *FMA
-                * num_layers
-                * (
-                    ## q lora + rope + q norm
-                    q_term
-                    ## kv lora + rope + kv norm
-                    + args.kv_lora_rank
-                    * (
-                        args.hidden_size
-                        + args.num_attention_heads * (args.qk_head_dim + args.v_head_dim)
-                        + 1
-                    )
-                    + args.hidden_size * args.qk_pos_emb_head_dim
-                    ## o proj
-                    + (args.num_attention_heads * args.v_head_dim) * args.hidden_size
-                    ## core attn
-                    + args.seq_length
-                    * (args.num_attention_heads * (args.qk_head_dim + args.qk_pos_emb_head_dim))
-                    / 2
-                    + args.seq_length * args.num_attention_heads * args.v_head_dim / 2
-                )
-            )
 
+            ## JHSHIN: 이 파트를 수정함.
+            if args.sliding_window_interleave_k is None:
+                self_attn_term = (
+                    3
+                    * 2  # fwd(1) + bwd(2) *FMA
+                    * num_layers
+                    * (
+                        ## q lora + rope + q norm
+                        q_term
+                        ## kv lora + rope + kv norm
+                        + args.kv_lora_rank
+                        * (
+                            args.hidden_size
+                            + args.num_attention_heads * (args.qk_head_dim + args.v_head_dim)
+                            + 1
+                        )
+                        + args.hidden_size * args.qk_pos_emb_head_dim
+                        ## o proj
+                        + (args.num_attention_heads * args.v_head_dim) * args.hidden_size
+                        ## core attn
+                        + args.seq_length
+                        * (args.num_attention_heads * (args.qk_head_dim + args.qk_pos_emb_head_dim))
+                        / 2
+                        + args.seq_length * args.num_attention_heads * args.v_head_dim / 2
+                    )
+                )
+                #print_rank_0(f'self_attn_term: {self_attn_term}')
+            else:
+                num_global_layers = num_layers // args.sliding_window_interleave_k
+                num_local_layers = num_layers - num_global_layers
+
+                self_attn_term = (      ## JHSHIN, Global SWA parts
+                        3
+                        * 2
+                        * num_global_layers 
+                        * (
+                            ## q lora + rope + q norm
+                            q_term
+                            ## kv lora + rope + kv norm
+                            + args.kv_lora_rank
+                            * (
+                                args.hidden_size
+                                + args.num_attention_heads * (args.qk_head_dim + args.v_head_dim)
+                                + 1
+                            )
+                            + args.hidden_size * args.qk_pos_emb_head_dim
+                            ## o proj
+                            + (args.num_attention_heads * args.v_head_dim) * args.hidden_size
+                            ## core attn
+                            + args.seq_length
+                            * (args.num_attention_heads * (args.qk_head_dim + args.qk_pos_emb_head_dim))
+                            / 2
+                            + args.seq_length * args.num_attention_heads * args.v_head_dim / 2
+                        )
+                    ) + (
+                        ## JHSHIN, Local SWA parts
+                        3
+                        * 2
+                        * num_local_layers 
+                        * (
+                            ## q lora + rope + q norm
+                            q_term
+                            ## kv lora + rope + kv norm
+                            + args.kv_lora_rank
+                            * (
+                                args.hidden_size
+                                + args.num_attention_heads * (args.qk_head_dim + args.v_head_dim)
+                                + 1
+                            )
+                            + args.hidden_size * args.qk_pos_emb_head_dim
+                            ## o proj
+                            + (args.num_attention_heads * args.v_head_dim) * args.hidden_size
+                            ## core attn
+                            + min(args.seq_length, args.sliding_window_size)
+                            * (args.num_attention_heads * (args.qk_head_dim + args.qk_pos_emb_head_dim))
+                            / 2
+                            + min(args.seq_length, args.sliding_window_size) * args.num_attention_heads * args.v_head_dim / 2
+                        )
+                    )
+                #print_rank_0(f'** SWA self_attn_term: {self_attn_term}')
         else:
             ## MHA or GQA
             self_attn_term = (
@@ -1530,6 +1586,8 @@ def training_log(
         elapsed_time = timers('interval-time').elapsed(barrier=True)
         elapsed_time_per_iteration = elapsed_time / total_iterations
 
+        # JHSHIN, 문제는 분자가 작을 수록 throughput은 나빠진다. MFU는 계산 대상이 많을 수록 잘 나옴.
+        # SWA-MLA를 정확하게 반영하면, 오히려 throughput은 나쁘게 나타나는게 당연하다.
         throughput = num_floating_point_operations(args, batch_size) / (
             elapsed_time_per_iteration * 10**12 * args.world_size
         )

@@ -244,7 +244,6 @@ class LocalGlobalMultiLatentAttention(MultiLatentAttention):
         cp_comm_type: Optional[str] = None,
         model_comm_pgs: ModelCommProcessGroups = None,
     ) -> None:
-        submodules.post_attn_layernorm = TENorm
         super().__init__(config=config, submodules=submodules, layer_number=layer_number,
                          attn_mask_type=attn_mask_type,
                          attention_type=attention_type,
@@ -459,6 +458,7 @@ class LocalGlobalMLASelfAttention(LocalGlobalMultiLatentAttention):
             # JHSHIN, yarn 등의 non-vanilla rope를 위함.
             if self.config.apply_rope_fusion:
                 # FIXME: 이 부분은 아직 수정되지 않음. 수정 필요함. rope fusion을 사용하지 않기 때문에 일단은 제거.
+                raise NotImplementedError
                 rotary_pos_cos, rotary_pos_sin = self.rotary_pos_emb.get_cached_cos_sin(
                     rotary_seq_len, dtype=hidden_states.dtype, packed_seq=packed_seq
                 )
@@ -856,6 +856,7 @@ def get_wbl_moe_gpt_decoder_block_spec(
     normalization: Optional[str] = None,
     qk_l2_norm: Optional[bool] = False,
     vp_stage: Optional[int] = None,
+    disable_parallism_for_shared_expert: bool = False,
 ) -> TransformerBlockSubmodules:
     disable_parallism_for_shared_expert = False
 
