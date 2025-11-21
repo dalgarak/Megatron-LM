@@ -1,7 +1,7 @@
 FROM nvcr.io/nvidia/nemo:25.09
 
 RUN /opt/venv/bin/python -m pip install --no-cache-dir pip transformers==4.57.*
-RUN git clone --depth 1 --branch dev https://github.com/cyr0930/Megatron-LM-wbl.git && \ 
+RUN git clone --depth 1 --branch wbl_moe_stable_gloo https://github.com/dalgarak/Megatron-LM.git ./Megatron-LM-wbl && \ 
     rm -rf Megatron-LM-wbl/.git
 WORKDIR /workspace/Megatron-LM-wbl
 
