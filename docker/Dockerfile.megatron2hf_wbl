@@ -1,0 +1,8 @@
+FROM nvcr.io/nvidia/nemo:25.09
+
+RUN /opt/venv/bin/python -m pip install --no-cache-dir pip transformers==4.57.*
+RUN git clone --depth 1 --branch dev https://github.com/cyr0930/Megatron-LM-wbl.git && \ 
+    rm -rf Megatron-LM-wbl/.git
+WORKDIR /workspace/Megatron-LM-wbl
+
+CMD ["bash", "-lc", "torchrun --standalone --nnodes=1 --nproc_per_node=1 -m bridge.hf_convert_gpt_for_wbl --megatron-model-path \"$PATH_MEGATRON\" --hf-model-path \"$PATH_HF\" --tokenizer-path \"$PATH_TOK\""]
