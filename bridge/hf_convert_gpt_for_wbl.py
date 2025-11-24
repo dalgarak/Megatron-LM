@@ -158,6 +158,8 @@ def load_megatron_model(args):
     mlm_args.context_parallel_size = 1
     mlm_args.transformer_pipeline_model_parallel_size = 1
 
+    mlm_args.recompute_granularity = None
+
     # with torch.device("meta"):
     pre_process = parallel_state.is_pipeline_first_stage()
     post_process = parallel_state.is_pipeline_last_stage()
