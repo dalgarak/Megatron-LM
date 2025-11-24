@@ -154,6 +154,8 @@ def load_megatron_model(args):
     mlm_args.expert_tensor_parallel_size = 1
     mlm_args.pipeline_model_parallel_size = 1
     mlm_args.tensor_model_parallel_size = 1
+    mlm_args.sequence_parallel = False
+    mlm_args.context_parallel_size = 1
     mlm_args.transformer_pipeline_model_parallel_size = 1
 
     # with torch.device("meta"):
