@@ -57,7 +57,6 @@ from vllm.model_executor.models.interfaces import (
     SupportsLoRA,
     SupportsPP,
 )
-from vllm.model_executor.custom_op import CustomOp
 from vllm.sequence import IntermediateTensors
 
 logger = init_logger(__name__)
@@ -252,7 +251,20 @@ class WBLMoE(nn.Module):
         return final_hidden_states.view(num_tokens, hidden_dim)
 
 
-@CustomOp.register("wbl_embedding")
+def apply_rotary_emb(
+    x: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+) -> torch.Tensor:
+    cos = cos.unsqueeze(-2).to(x.dtype)
+    sin = sin.unsqueeze(-2).to(x.dtype)
+    x1 = x[..., ::2]
+    x2 = x[..., 1::2]
+    o1 = x1 * cos - x2 * sin
+    o2 = x2 * cos + x1 * sin
+    return torch.cat((o1, o2), dim=-1)
+
+
 class WBLRope(RotaryEmbedding):
 
     def __init__(
@@ -261,16 +273,34 @@ class WBLRope(RotaryEmbedding):
         rotary_dim: int,
         max_position_embeddings: int,
         base: float,
-        is_neox_style: bool,
         dtype: torch.dtype,
         scale_inv_freq: float,
     ) -> None:
         self.scale_inv_freq = scale_inv_freq
-        super().__init__(head_size, rotary_dim, max_position_embeddings, base, is_neox_style, dtype)
+        super().__init__(head_size, rotary_dim, max_position_embeddings, base, False, dtype)
 
     def _compute_inv_freq(self, base: float) -> torch.Tensor:
         inv_freq = 1.0 / (base**(torch.arange(0, self.rotary_dim, 2, dtype=torch.float) / self.rotary_dim)) / self.scale_inv_freq
         return inv_freq
+    
+    def forward(
+        self,
+        positions: torch.Tensor,
+        query: torch.Tensor,
+        key: Optional[torch.Tensor] = None,
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
+        positions = positions.flatten()
+        num_tokens = positions.shape[0]
+        cos_sin = self.cos_sin_cache.index_select(0, positions)
+        cos, sin = cos_sin.chunk(2, dim=-1)
+
+        query = query.view(num_tokens, -1, self.head_size)
+        query = apply_rotary_emb(query, cos, sin)
+
+        if key is not None:
+            key = key.view(num_tokens, -1, self.head_size)
+            key = apply_rotary_emb(key, cos, sin)
+        return query, key
 
 
 def yarn_get_mscale(scale: float = 1, mscale: float = 1) -> float:
@@ -301,15 +331,12 @@ def get_rope(
     else:
         rope_scaling_args = None
 
-    is_neox_style = False
-    dual_chunk_attention_args = None
-    key = (head_size, rotary_dim, max_position, base, is_neox_style,
-           rope_scaling_args, dual_chunk_attention_args, dtype)
+    key = (head_size, rotary_dim, max_position, base, rope_scaling_args, dtype)
     if key in _ROPE_DICT:
         return _ROPE_DICT[key]
 
     if not rope_scaling:
-        rotary_emb = WBLRope(head_size, rotary_dim, max_position, base, is_neox_style, dtype, scale_inv_freq)
+        rotary_emb = WBLRope(head_size, rotary_dim, max_position, base, dtype, scale_inv_freq)
     else:
         scaling_type = rope_scaling["rope_type"]
         if scaling_type == "deepseek_yarn":
@@ -419,6 +446,7 @@ class WBLAttention(nn.Module):
         self.rope_theta = rope_theta
         self.max_position_embeddings = max_position_embeddings
 
+        # TODO: Some weights can be merged for efficiency.
         if self.q_lora_rank is not None:
             self.q_a_proj = ReplicatedLinear(
                 self.hidden_size,
