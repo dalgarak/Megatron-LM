@@ -8,7 +8,7 @@ from itertools import takewhile
 from accelerate import init_empty_weights
 from huggingface_hub import split_torch_state_dict_into_shards
 from transformers.utils import SAFE_WEIGHTS_NAME, SAFE_WEIGHTS_INDEX_NAME
-from transformers import AutoModelForCausalLM, AutoConfig
+from transformers import AutoModelForCausalLM, AutoConfig, AutoTokenizer
 from megatron.core import parallel_state
 from megatron.core.enums import ModelType
 from megatron.training.arguments import add_megatron_arguments
@@ -22,7 +22,7 @@ DIR_SETTINGS = "settings"
 DIR_HF = "hf"
 
 
-def _create_hf_config(model, save_directory):
+def _create_hf_config(model, tokenizer, save_directory):
     config = {
         "auto_map": {
             "AutoConfig": "configuration_wbl.WBLConfig",
@@ -60,8 +60,8 @@ def _create_hf_config(model, save_directory):
         "max_position_embeddings": model.max_position_embeddings,
         "tie_word_embeddings": model.share_embeddings_and_output_weights,
         "vocab_size": model.vocab_size,
-        "bos_token_id": 1,
-        "eos_token_id": 2,
+        "bos_token_id": tokenizer.bos_token_id,
+        "eos_token_id": tokenizer.eos_token_id,
         "torch_dtype": "bfloat16",
         "transformers_version": "4.53.3",
     }
@@ -120,7 +120,8 @@ def preprocess(megatron_model, args):
     _copy_codes(setting_path)
     _copy_tokenizer_files(args.tokenizer_path, setting_path)
 
-    _create_hf_config(megatron_model, setting_path)
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
+    _create_hf_config(megatron_model, tokenizer, setting_path)
 
     config = AutoConfig.from_pretrained(setting_path, trust_remote_code=True)
     with init_empty_weights():
