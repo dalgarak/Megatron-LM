@@ -4,6 +4,7 @@ import shutil
 import json
 import argparse
 import math
+import transformers
 from itertools import takewhile
 from accelerate import init_empty_weights
 from huggingface_hub import split_torch_state_dict_into_shards
@@ -62,8 +63,8 @@ def _create_hf_config(model, tokenizer, save_directory):
         "vocab_size": model.vocab_size,
         "bos_token_id": tokenizer.bos_token_id,
         "eos_token_id": tokenizer.eos_token_id,
-        "torch_dtype": "bfloat16",
-        "transformers_version": "4.53.3",
+        "dtype": "bfloat16",
+        "transformers_version": transformers.__version__,
     }
     with open(f"{save_directory}/config.json", "w") as w:
         json.dump(config, w, indent=2)

@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='wbl_model',
-    version='0.1.4',
+    version='0.1.7',
     packages=['wbl'],
     entry_points={
         'vllm.general_plugins': [

@@ -11,7 +11,7 @@ pip install -e .
 # Serving example
 
 ```shell
-vllm serve path/to/ckpt --served-model-name wbl_model --trust-remote-code --tensor-parallel-size 8
+vllm serve path/to/ckpt --served-model-name <MODEL_NAME> --trust-remote-code --tensor-parallel-size 8
 ```
 
 
@@ -21,7 +21,7 @@ vllm serve path/to/ckpt --served-model-name wbl_model --trust-remote-code --tens
 curl http://localhost:8000/v1/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": wbl_model,
+    "model": "<MODEL_NAME>",
     "prompt": "Albert Einstein (14 March 1879 - 18 April 1955) was"
   }'
 ```
