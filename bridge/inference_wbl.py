@@ -42,7 +42,7 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(args.load)
     model = AutoModelForCausalLM.from_pretrained(
         args.load,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         device_map="auto",
         trust_remote_code=True,
         attn_implementation="flash_attention_2",
