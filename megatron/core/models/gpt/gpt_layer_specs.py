@@ -365,7 +365,6 @@ def get_mlp_module_spec_for_backend(
     moe_grouped_gemm: Optional[bool] = False,
     moe_use_legacy_grouped_gemm: Optional[bool] = False,
     use_te_op_fuser: Optional[bool] = False,
-    disable_parallism_for_shared_expert: Optional[bool] = False,
 ) -> ModuleSpec:
     """Helper function to get module spec for MLP/MoE"""
 
@@ -390,7 +389,6 @@ def get_mlp_module_spec_for_backend(
             num_experts=num_experts,
             moe_grouped_gemm=moe_grouped_gemm,
             moe_use_legacy_grouped_gemm=moe_use_legacy_grouped_gemm,
-            disable_parallism_for_shared_expert=disable_parallism_for_shared_expert,
         )
 
 

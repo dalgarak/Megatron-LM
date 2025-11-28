@@ -42,18 +42,14 @@ def get_moe_module_spec_for_backend(
     num_experts: Optional[int] = None,
     moe_grouped_gemm: Optional[bool] = False,
     moe_use_legacy_grouped_gemm: Optional[bool] = False,
-    disable_parallism_for_shared_expert: Optional[bool] = False,
 ) -> ModuleSpec:
     """Helper function to get module spec for MoE"""
     assert num_experts is not None
 
-    # prevent TP for shared_experts, to allow asymmetric TP/Expert-TP configuration
-    if disable_parallism_for_shared_expert:
-        linear_fc1 = backend.linear()
-        linear_fc2 = backend.linear()
-    else:
-        linear_fc1 = backend.column_parallel_linear()
-        linear_fc2 = backend.row_parallel_linear()
+    shared_expert_param = {"gate": False}
+
+    linear_fc1 = backend.column_parallel_linear()
+    linear_fc2 = backend.row_parallel_linear()
 
     mlp = MLPSubmodules(linear_fc1=linear_fc1, linear_fc2=linear_fc2)
 
@@ -65,7 +61,7 @@ def get_moe_module_spec_for_backend(
     experts = ModuleSpec(module=expert_module, submodules=expert_submodule)
 
     # shared experts spec
-    shared_experts = ModuleSpec(module=SharedExpertMLP, params={"gate": False,}, submodules=mlp)
+    shared_experts = ModuleSpec(module=SharedExpertMLP, params=shared_expert_param, submodules=mlp)
 
     # MoE module spec
     moe_module_spec = ModuleSpec(

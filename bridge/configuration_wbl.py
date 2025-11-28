@@ -3,7 +3,6 @@ from transformers.modeling_rope_utils import rope_config_validation
 
 
 class WBLConfig(PretrainedConfig):
-
     model_type = "wbl"
     keys_to_ignore_at_inference = ["past_key_values"]
     base_model_tp_plan = {  # TODO: only replicate attention layers when > first_k_dense_replace
@@ -112,6 +111,7 @@ class WBLConfig(PretrainedConfig):
 
         if self.layer_types is None:
             self.layer_types = [
+                # FIXME: megatron transformer_config에 맞게 패턴 변경 필요
                 "sliding_attention" if bool((i + 1) % 6) else "full_attention"
                 for i in range(self.num_hidden_layers)
             ]

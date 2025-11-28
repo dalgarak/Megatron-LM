@@ -70,6 +70,7 @@ class MLP(MegatronModule):
         input_size: Optional[int] = None,
         ffn_hidden_size: int = None,
         tp_group: Optional[torch.distributed.ProcessGroup] = None,
+        disable_parallelism: bool = False,
     ):
         super().__init__(config=config)
 
@@ -78,6 +79,13 @@ class MLP(MegatronModule):
         self.input_size = input_size if input_size != None else self.config.hidden_size
 
         tp_group = get_tensor_model_parallel_group_if_none(tp_group, is_expert=is_expert)
+
+        if disable_parallelism:
+            tp_group = None
+            extra_kwargs = {"parallel_mode": "duplicated"}
+        else:
+            extra_kwargs = {}
+
         if ffn_hidden_size is None:
             if is_expert:
                 raise ValueError("MoE MLP requires `ffn_hidden_size`, but it was not provided.")
@@ -106,6 +114,7 @@ class MLP(MegatronModule):
             is_expert=is_expert,
             tp_comm_buffer_name="fc1",
             tp_group=tp_group,
+            **extra_kwargs,
         )
 
         self.activation_func = self.config.activation_func
@@ -122,6 +131,7 @@ class MLP(MegatronModule):
             is_expert=is_expert,
             tp_comm_buffer_name="fc2",
             tp_group=tp_group,
+            **extra_kwargs,
         )
 
     def forward(self, hidden_states, per_token_scale=None):
@@ -340,13 +350,6 @@ def apply_swiglu_sharded_factory(
 
     def sh_ten_merge_fn(sub_state_dict):
         with torch.no_grad():
-            """ to prevent OOM """
-            """
-            merged_sub_state_dict = torch.cat([t.cpu() for t in sub_state_dict])
-            gc.collect()
-            torch.cuda.empty_cache()
-            return merged_sub_state_dict
-            """
             try:
                 return torch.cat(sub_state_dict)
             except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
