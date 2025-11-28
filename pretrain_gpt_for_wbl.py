@@ -84,12 +84,12 @@ def print_module_params(model, print_func):
 
 def _get_transformer_layer_spec(use_te, config):
     """Get transformer layer specification based on configuration.
-    
+
     Args:
         use_te (bool): Whether to use Transformer Engine
         args: Training arguments
         config: Model configuration
-        
+
     Returns:
         transformer_layer_spec: The transformer layer specification
     """
@@ -101,7 +101,7 @@ def _get_transformer_layer_spec(use_te, config):
             args.moe_grouped_gemm,
             args.qk_layernorm,
             args.multi_latent_attention,
-            args.moe_use_legacy_grouped_gemm,
+            moe_use_legacy_grouped_gemm=args.moe_use_legacy_grouped_gemm,
             qk_l2_norm=args.qk_l2_norm,
             use_kitchen=config.use_kitchen,
         )
@@ -111,7 +111,7 @@ def _get_transformer_layer_spec(use_te, config):
             args.moe_grouped_gemm,
             args.qk_layernorm,
             args.multi_latent_attention,
-            args.moe_use_legacy_grouped_gemm,
+            moe_use_legacy_grouped_gemm=args.moe_use_legacy_grouped_gemm,
             normalization=args.normalization,
             use_kitchen=config.use_kitchen,
         )
@@ -133,12 +133,7 @@ def model_provider(
         Union[GPTModel, megatron.legacy.model.GPTModel]: The returned model
     """
     args = get_args()
-    return model_provider_with_args(args, pre_process, post_process, vp_stage)
 
-
-def model_provider_with_args(
-    args, pre_process=True, post_process=True, vp_stage: Optional[int] = None
-) -> Union[GPTModel, megatron.legacy.model.GPTModel]:
     if has_nvidia_modelopt and modelopt_args_enabled(args):  # [ModelOpt]
         return model_provider_modelopt(pre_process, post_process)
 
@@ -185,7 +180,7 @@ def model_provider_with_args(
         if args.spec is not None:
             transformer_layer_spec = import_module(args.spec)
         else:
-            # JHSHIN: 여기로 진입하여 실행되어야 함. 
+            # JHSHIN: 여기로 진입하여 실행되어야 함.
             if args.num_experts:
                 # Define the decoder block spec
                 transformer_layer_spec = get_wbl_moe_gpt_decoder_block_spec(
@@ -197,7 +192,7 @@ def model_provider_with_args(
                 # Define the decoder layer spec
                 transformer_layer_spec = _get_transformer_layer_spec(use_te, config)
         mtp_block_spec = None
-        # 아래는 Multi-token prediction 관련 세팅부. 
+        # 아래는 Multi-token prediction 관련 세팅부.
         if args.mtp_num_layers is not None:
             if hasattr(transformer_layer_spec, 'layer_specs') and len(transformer_layer_spec.layer_specs) == 0:
                 # Get the decoder layer spec explicitly if no decoder layer in the last stage,
@@ -208,7 +203,7 @@ def model_provider_with_args(
             mtp_block_spec = get_gpt_mtp_block_spec(
                 config, transformer_layer_spec_for_mtp, use_transformer_engine=use_te, vp_stage=vp_stage
             )
-        
+
         print_rank_0(transformer_layer_spec)
 
         model = GPTModel(
@@ -379,6 +374,8 @@ def core_gpt_dataset_config_from_args(args):
         blend=blend,
         blend_per_split=blend_per_split,
         split=args.split,
+        multiple_validation_sets=args.multiple_validation_sets,
+        full_validation=args.full_validation,
         num_dataset_builder_threads=args.num_dataset_builder_threads,
         path_to_cache=args.data_cache_path,
         mmap_bin_files=args.mmap_bin_files,
