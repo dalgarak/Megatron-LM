@@ -1115,6 +1115,15 @@ def validate_args(args, defaults={}):
             args.recompute_granularity != 'full'
         ), 'recompute_granularity must not be full when CUDA Graphs are enabled.'
 
+    # check length when tp != expert_tp and blockwise fp8 recipe, 
+    # to ensure seq_length must be divided with attention_heads * 8 * 16 
+    # see also: transformer_engine float8_blockwise_tensor.py, is_quantizable() function.
+    if args.fp8_recipe == "blockwise" and args.tensor_model_parallel_size != args.expert_tensor_parallel_size:
+        assert args.seq_length % (args.num_attention_heads * 8 * 16) == 0, (
+            f"when tp != expert_tp and FP8 blockwise scaling, must be seq_length({args.seq_length}) %% "
+            f"(num-attention-heads ({args.num_attention_heads}) * 8 * 16) == 0"
+        )
+
     # Print arguments.
     _print_args("arguments", args)
 
