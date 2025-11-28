@@ -5,7 +5,6 @@ from typing import Any
 
 import torch
 from torch import nn
-from bridge.configuration_wbl import WBLConfig
 
 from vllm.attention import Attention
 from vllm.compilation.decorators import support_torch_compile
@@ -58,6 +57,7 @@ from vllm.model_executor.models.interfaces import (
 )
 from vllm.platforms import current_platform
 from vllm.sequence import IntermediateTensors
+from .configuration_wbl import WBLConfig
 
 logger = init_logger(__name__)
 

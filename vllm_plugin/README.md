@@ -1,10 +1,9 @@
 # Register model
 
 ```shell
-export PLUGIN_ROOT_PATH=/path/to/plugin_root
-export PYTHONPATH=$PLUGIN_ROOT_PATH:$PYTHONPATH
-cd $PLUGIN_ROOT_PATH/vllm_plugin
-pip install -e .
+export PLUGIN_PATH=/path/to/plugin
+export PYTHONPATH=$PLUGIN_PATH:$PYTHONPATH
+pip install $PLUGIN_PATH
 ```
 
 

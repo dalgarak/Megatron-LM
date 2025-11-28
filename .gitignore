@@ -16,3 +16,4 @@ onelogger.err
 runs/
 /test_cases/
 **/dist/
+vllm_plugin/wbl/configuration_wbl.py
