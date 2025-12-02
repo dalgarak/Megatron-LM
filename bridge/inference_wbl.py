@@ -1,5 +1,10 @@
 import os
 import shutil
+import json
+import time
+import argparse
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 def copy_codes(save_directory):
@@ -9,11 +14,6 @@ def copy_codes(save_directory):
 
 
 if __name__ == "__main__":
-    import time
-    import argparse
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--load",
@@ -24,6 +24,11 @@ if __name__ == "__main__":
         metavar='N',
         type=str,
         nargs='+',
+    )
+    parser.add_argument(
+        "--prompt-path",
+        type=str,
+        default=None,
     )
     parser.add_argument(
         "--num-tokens-to-generate",
@@ -39,15 +44,21 @@ if __name__ == "__main__":
 
     if args.copy_codes:
         copy_codes(args.load)
+    prompts = args.prompts
+    if args.prompt_path is not None:
+        prompts = []
+        with open(args.prompt_path, encoding="utf8") as r:
+            for line in r:
+                prompts.append(json.loads(line)["text"])
     tokenizer = AutoTokenizer.from_pretrained(args.load)
     model = AutoModelForCausalLM.from_pretrained(
         args.load,
         dtype=torch.bfloat16,
         device_map="auto",
         trust_remote_code=True,
-        attn_implementation="flash_attention_2",
+        attn_implementation="flash_attention_3",
     )
-    inputs = tokenizer(args.prompts, padding=True, return_tensors="pt")["input_ids"].to(model.device)
+    inputs = tokenizer(prompts, padding=True, return_tensors="pt")["input_ids"].to(model.device)
     start = time.time()
     outputs = model.generate(inputs, max_new_tokens=args.num_tokens_to_generate)
     print(tokenizer.batch_decode(outputs))
