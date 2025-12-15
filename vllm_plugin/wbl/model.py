@@ -32,7 +32,7 @@ from vllm.model_executor.layers.linear import (
 )
 from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.layers.quantization import QuantizationConfig
-from vllm.model_executor.layers.rotary_embedding import RotaryEmbedding, _ROPE_DICT
+from vllm.model_executor.layers.rotary_embedding import RotaryEmbedding, DeepseekScalingRotaryEmbedding, _ROPE_DICT
 from vllm.model_executor.layers.shared_fused_moe import SharedFusedMoE
 from vllm.model_executor.layers.vocab_parallel_embedding import (
     ParallelLMHead,
@@ -313,6 +313,25 @@ class WBLRope(RotaryEmbedding):
         return query, key
 
 
+class WBLYarn(DeepseekScalingRotaryEmbedding):
+    def forward(
+        self,
+        positions: torch.Tensor,
+        query: torch.Tensor,
+        key: torch.Tensor | None = None,
+        offsets: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        assert key is not None
+        self._match_cos_sin_cache_dtype(query)
+
+        cos_sin = self.cos_sin_cache[torch.add(positions, offsets) if offsets is not None else positions]
+        cos, sin = cos_sin.chunk(2, dim=-1)
+
+        query = apply_rotary_emb(query, cos, sin)
+        key = apply_rotary_emb(key, cos, sin)
+        return query, key
+
+
 def yarn_get_mscale(scale: float = 1, mscale: float = 1) -> float:
     import math
 
@@ -359,8 +378,32 @@ def get_rope(
         )
     else:
         scaling_type = rope_scaling["rope_type"]
-        if scaling_type == "deepseek_yarn":
-            raise NotImplementedError
+        if scaling_type == "yarn":
+            scaling_factor = rope_scaling["factor"]
+            original_max_position = rope_scaling["original_max_position_embeddings"]
+            extra_kwargs = {
+                k: v
+                for k, v in rope_scaling.items()
+                if k
+                in (
+                    "extrapolation_factor",
+                    "attn_factor",
+                    "beta_fast",
+                    "beta_slow",
+                    "mscale",
+                    "mscale_all_dim",
+                )
+            }
+            rotary_emb = WBLYarn(
+                head_size,
+                rotary_dim,
+                original_max_position,
+                base,
+                False,
+                scaling_factor,
+                dtype,
+                **extra_kwargs,
+            )
         else:
             raise ValueError(f"Unknown RoPE scaling type {scaling_type}")
     _ROPE_DICT[key] = rotary_emb
@@ -452,9 +495,7 @@ class WBLAttention(nn.Module):
             prefix=f"{prefix}.o_proj",
         )
 
-        if rope_scaling:
-            rope_scaling["rope_type"] = 'deepseek_yarn'
-        scale_inv_freq = 8.0 if sliding_window is None else 1.0
+        scale_inv_freq = 8.0 if sliding_window is None and rope_scaling is None else 1.0
         self.rotary_emb = get_rope(
             qk_rope_head_dim,
             rotary_dim=qk_rope_head_dim,
@@ -542,12 +583,16 @@ class WBLDecoderLayer(nn.Module):
         self.layer_idx = layer_idx
         is_sliding = config.layer_types[layer_idx] == "sliding_attention"
         cache_config.sliding_window = None
-        sliding_window = config.sliding_window if is_sliding else None
-        rope_theta_key = "rope_theta" if is_sliding else "rope_theta_global"
+        if is_sliding:
+            sliding_window = config.sliding_window
+            rope_theta = getattr(config, "rope_theta", 10000)
+            rope_scaling = None
+        else:
+            sliding_window = None
+            rope_theta = getattr(config, "rope_theta_global", 1000000)
+            rope_scaling = getattr(config, "rope_scaling", None)
 
         self.hidden_size = config.hidden_size
-        rope_theta = getattr(config, rope_theta_key, 10000)
-        rope_scaling = getattr(config, "rope_scaling", None)
         max_position_embeddings = getattr(config, "max_position_embeddings", 8192)
 
         # verify MLA attention specific fields
