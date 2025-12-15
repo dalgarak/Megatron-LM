@@ -57,11 +57,14 @@ def _create_hf_config(model, tokenizer, save_directory):
         "rope_interleave": True,
         # TODO: correct weights according to rope_factor
         # TODO: mscale for yarn
-        "rope_scaling": {"rope_type": model.config.rope_type, "factor": model.config.rotary_scaling_factor},
+        "rope_scaling": {
+            "rope_type": model.config.rope_type,
+            "factor": model.config.rotary_scaling_factor,
+            "original_max_position_embeddings": model.config.original_max_position_embeddings,
+        },
         "rope_theta_global": float(model.config.rotary_base_global),
         "rope_theta_local": float(model.config.rotary_base),
         "max_position_embeddings": model.max_position_embeddings,
-        "original_max_position_embeddings": model.config.original_max_position_embeddings,
         "tie_word_embeddings": model.share_embeddings_and_output_weights,
         "vocab_size": model.vocab_size,
         "bos_token_id": tokenizer.bos_token_id,

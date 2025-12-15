@@ -38,11 +38,11 @@ class WBLRMSNorm(nn.Module):
 
 
 class WBLRotaryEmbedding(nn.Module):
-    def __init__(self, config: WBLConfig, rope_type="default", device=None):
+    def __init__(self, config: WBLConfig, rope_type="default", original_max_position_embeddings=None, device=None):
         super().__init__()
         self.rope_type = rope_type
         self.max_seq_len_cached = config.max_position_embeddings
-        self.original_max_seq_len = config.original_max_position_embeddings
+        self.original_max_seq_len = original_max_position_embeddings
 
         self.config = config
         self.rope_init_fn = ROPE_INIT_FUNCTIONS[self.rope_type]
@@ -445,8 +445,13 @@ class WBLModel(WBLPreTrainedModel):
 
         config = copy.deepcopy(config)
         config.rope_theta = config.rope_theta_global
-        rope_type = "default" if self.config.rope_scaling is None else config.rope_scaling["rope_type"]
-        self.rotary_emb_global = WBLRotaryEmbedding(config=config, rope_type=rope_type)
+        if self.config.rope_scaling is None:
+            rope_type = "default"
+            original_max_position_embeddings = config.max_position_embeddings
+        else:
+            rope_type = config.rope_scaling["rope_type"]
+            original_max_position_embeddings = config.rope_scaling["original_max_position_embeddings"]
+        self.rotary_emb_global = WBLRotaryEmbedding(config=config, rope_type=rope_type, original_max_position_embeddings=original_max_position_embeddings)
         if rope_type == "default":
             self.rotary_emb_global.inv_freq /= 8.0
 
