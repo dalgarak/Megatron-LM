@@ -59,6 +59,9 @@ from vllm.platforms import current_platform
 from vllm.sequence import IntermediateTensors
 from .configuration_wbl import WBLConfig
 
+if current_platform.is_cuda_alike():
+    from vllm.model_executor.layers.fused_moe.fused_moe import eplb_map_to_physical_and_record
+
 logger = init_logger(__name__)
 
 
@@ -141,6 +144,7 @@ class WBLMoE(nn.Module):
             config.hidden_size,
             config.n_routed_experts,
             bias=False,
+            params_dtype=torch.float32,
             quant_config=None,
             prefix=f"{prefix}.gate",
         )
@@ -159,75 +163,45 @@ class WBLMoE(nn.Module):
             self.physical_expert_start + self.n_local_physical_experts
         )
 
-        scoring_func = "sigmoid"
-        # TODO: remove grouped topk related logic
-        if config.n_shared_experts is None:
-            self.shared_experts = None
-            self.experts = FusedMoE(
-                num_experts=config.n_routed_experts,
-                top_k=config.num_experts_per_tok,
-                hidden_size=config.hidden_size,
-                intermediate_size=config.moe_intermediate_size,
-                reduce_results=False,
-                renormalize=config.norm_topk_prob,
-                quant_config=quant_config,
-                use_grouped_topk=True,
-                num_expert_group=1,
-                topk_group=1,
-                prefix=f"{prefix}.experts",
-                scoring_func=scoring_func,
-                # we do scaling outside, set factor to 1.0 to avoid double mul
-                routed_scaling_factor=1.0,
-                enable_eplb=self.enable_eplb,
-                num_redundant_experts=self.n_redundant_experts,
-                is_sequence_parallel=self.is_sequence_parallel,
-            )
-        else:
-            intermediate_size = config.moe_intermediate_size * config.n_shared_experts
-
-            self.shared_experts = WBLMLP(
-                hidden_size=config.hidden_size,
-                intermediate_size=intermediate_size,
-                hidden_act=config.hidden_act,
-                quant_config=quant_config,
-                is_sequence_parallel=self.is_sequence_parallel,
-                reduce_results=False,
-                prefix=f"{prefix}.shared_experts",
-            )
-            self.experts = SharedFusedMoE(
-                shared_experts=self.shared_experts,
-                num_experts=config.n_routed_experts,
-                top_k=config.num_experts_per_tok,
-                hidden_size=config.hidden_size,
-                intermediate_size=config.moe_intermediate_size,
-                reduce_results=False,
-                renormalize=config.norm_topk_prob,
-                quant_config=quant_config,
-                use_grouped_topk=True,
-                num_expert_group=1,
-                topk_group=1,
-                prefix=f"{prefix}.experts",
-                scoring_func=scoring_func,
-                # we do scaling outside, set factor to 1.0 to avoid double mul
-                routed_scaling_factor=1.0,
-                enable_eplb=self.enable_eplb,
-                num_redundant_experts=self.n_redundant_experts,
-                is_sequence_parallel=self.is_sequence_parallel,
-            )
+        intermediate_size = config.moe_intermediate_size * config.n_shared_experts
+        self.shared_experts = WBLMLP(
+            hidden_size=config.hidden_size,
+            intermediate_size=intermediate_size,
+            hidden_act=config.hidden_act,
+            quant_config=quant_config,
+            is_sequence_parallel=self.is_sequence_parallel,
+            reduce_results=False,
+            prefix=f"{prefix}.shared_experts",
+        )
+        self.experts = SharedFusedMoE(
+            shared_experts=self.shared_experts,
+            num_experts=config.n_routed_experts,
+            top_k=config.num_experts_per_tok,
+            hidden_size=config.hidden_size,
+            intermediate_size=config.moe_intermediate_size,
+            reduce_results=False,
+            renormalize=config.norm_topk_prob,
+            quant_config=quant_config,
+            use_grouped_topk=True,
+            num_expert_group=1,
+            topk_group=1,
+            prefix=f"{prefix}.experts",
+            scoring_func="sigmoid",
+            routed_scaling_factor=self.routed_scaling_factor,
+            enable_eplb=self.enable_eplb,
+            num_redundant_experts=self.n_redundant_experts,
+            is_sequence_parallel=self.is_sequence_parallel,
+        )
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         num_tokens, hidden_dim = hidden_states.shape
         hidden_states = hidden_states.view(-1, hidden_dim)
 
-        # Chunk the hidden states so they aren't replicated across TP ranks.
-        # This avoids duplicate computation in self.experts.
-        # TODO: We can replace the all_reduce at the end of attn with a
-        # reduce_scatter instead of chunking here.
         if self.is_sequence_parallel:
             hidden_states = sequence_parallel_chunk(hidden_states)
 
         # router_logits: (num_tokens, n_experts)
-        router_logits, _ = self.gate(hidden_states)
+        router_logits, _ = self.gate(hidden_states.to(torch.float32))
         fused_moe_out = self.experts(
             hidden_states=hidden_states, router_logits=router_logits
         )
@@ -237,8 +211,6 @@ class WBLMoE(nn.Module):
         else:
             shared_output = None
             final_hidden_states = fused_moe_out
-
-        final_hidden_states *= self.routed_scaling_factor
 
         if self.shared_experts is not None:
             assert shared_output is not None
@@ -255,6 +227,84 @@ class WBLMoE(nn.Module):
             )
 
         return final_hidden_states.view(num_tokens, hidden_dim)
+
+
+@torch.compile(dynamic=True, backend=current_platform.simple_compile_backend)
+def topk_func(
+    hidden_states: torch.Tensor,
+    gating_output: torch.Tensor,
+    topk: int,
+    renormalize: bool,
+    scoring_func: str = "softmax",
+    routed_scaling_factor: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    assert hidden_states.size(0) == gating_output.size(0), ("Number of tokens mismatch")
+
+    if scoring_func == "softmax":
+        scores = torch.softmax(gating_output, dim=-1)
+    elif scoring_func == "sigmoid":
+        scores = gating_output.sigmoid()
+    else:
+        raise ValueError(f"Unsupported scoring function: {scoring_func}")
+
+    topk_weights, topk_ids = torch.topk(scores, k=topk, dim=-1, sorted=False)
+
+    if renormalize:
+        topk_weights = topk_weights / (topk_weights.sum(dim=-1, keepdim=True) + 1e-20)
+
+    topk_weights = topk_weights * routed_scaling_factor
+    return topk_weights.to(torch.float32), topk_ids.to(torch.int32)
+
+
+def select_experts(
+    hidden_states: torch.Tensor,
+    router_logits: torch.Tensor,
+    top_k: int,
+    use_grouped_topk: bool,
+    renormalize: bool,
+    topk_group: int | None = None,
+    num_expert_group: int | None = None,
+    custom_routing_function: Callable | None = None,
+    scoring_func: str = "softmax",
+    routed_scaling_factor: float = 1.0,
+    e_score_correction_bias: torch.Tensor | None = None,
+    indices_type: torch.dtype | None = None,
+    enable_eplb: bool = False,
+    expert_map: torch.Tensor | None = None,
+    expert_load_view: torch.Tensor | None = None,
+    logical_to_physical_map: torch.Tensor | None = None,
+    logical_replica_count: torch.Tensor | None = None,
+    global_num_experts: int | None = None,
+    zero_expert_num: int | None = None,
+    zero_expert_type: str | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    topk_weights, topk_ids = topk_func(
+        hidden_states=hidden_states,
+        gating_output=router_logits,
+        topk=top_k,
+        renormalize=renormalize,
+        scoring_func=scoring_func,
+        routed_scaling_factor=routed_scaling_factor,
+    )
+    if indices_type is not None:
+        topk_ids = topk_ids.to(dtype=indices_type)
+
+    if enable_eplb:
+        assert expert_load_view is not None
+        assert logical_to_physical_map is not None
+        assert logical_replica_count is not None
+        topk_ids = eplb_map_to_physical_and_record(
+            topk_ids=topk_ids,
+            expert_load_view=expert_load_view,
+            logical_to_physical_map=logical_to_physical_map,
+            logical_replica_count=logical_replica_count,
+            indices_type=indices_type,
+        )
+    assert topk_ids.dtype == indices_type or indices_type is None
+    return topk_weights, topk_ids, None
+
+
+FusedMoE.select_experts = select_experts    # monkeypatch select_experts to remove grouped_topk logic
 
 
 def apply_rotary_emb(
