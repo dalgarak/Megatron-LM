@@ -719,7 +719,7 @@ def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
     qk_l2_norm: Optional[bool] = False,
     use_te_op_fuser: Optional[bool] = False,
     use_kitchen: bool = False,
-    use_post_layernorm: bool = False,
+    use_post_layernorm: bool = True,
     disable_parallism_for_shared_expert: bool = False,
 ) -> ModuleSpec:
     """Use this spec to use lower-level Transformer Engine modules (required for fp8 training).
