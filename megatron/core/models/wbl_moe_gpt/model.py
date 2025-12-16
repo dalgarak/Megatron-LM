@@ -719,7 +719,7 @@ def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
     qk_l2_norm: Optional[bool] = False,
     use_te_op_fuser: Optional[bool] = False,
     use_kitchen: bool = False,
-    use_post_layernorm: bool = True,
+    use_post_layernorm: bool = False,
     disable_parallism_for_shared_expert: bool = False,
 ) -> ModuleSpec:
     """Use this spec to use lower-level Transformer Engine modules (required for fp8 training).
@@ -876,6 +876,7 @@ def get_wbl_moe_gpt_decoder_block_spec(
             moe_use_legacy_grouped_gemm=config.moe_use_legacy_grouped_gemm,
             qk_l2_norm=qk_l2_norm,
             use_kitchen=config.use_kitchen,
+            use_post_layernorm=config.peri_layernorm,
             disable_parallism_for_shared_expert=disable_parallism_for_shared_expert,
         )
         moe_layer_spec = get_wbl_moe_gpt_layer_with_transformer_engine_spec(
@@ -886,6 +887,7 @@ def get_wbl_moe_gpt_decoder_block_spec(
             moe_use_legacy_grouped_gemm=config.moe_use_legacy_grouped_gemm,
             qk_l2_norm=qk_l2_norm,
             use_kitchen=config.use_kitchen,
+            use_post_layernorm=config.peri_layernorm,
             disable_parallism_for_shared_expert=disable_parallism_for_shared_expert,
         )
     else:

@@ -180,6 +180,9 @@ class TransformerConfig(ModelParallelConfig):
     qk_layernorm: bool = True
     """Whether to apply `normalization` type of normalization to the query and key embeddings."""
 
+    peri_layernorm: bool = False
+    """ WBL only. enables post attention and MLP layer norm. """
+
     test_mode: bool = False
     """Whether to run real-time tests."""
 

@@ -190,15 +190,17 @@ class MultiLatentAttention(Attention):
             # the quantized tensor.
             set_save_original_input(self.linear_proj)
         # POST-LN, JHSHIN.
-
-        if submodules.post_attn_layernorm is None and HAVE_TE:
-            submodules.post_attn_layernorm = TENorm
-        self.post_attn_layernorm = build_module(
-            submodules.post_attn_layernorm,
-            hidden_size=self.config.hidden_size,
-            config=self.config,
-            eps=self.config.layernorm_epsilon,
-        )
+        if self.config.peri_layernorm:
+            if submodules.post_attn_layernorm is None and HAVE_TE:
+                submodules.post_attn_layernorm = TENorm
+            self.post_attn_layernorm = build_module(
+                submodules.post_attn_layernorm,
+                hidden_size=self.config.hidden_size,
+                config=self.config,
+                eps=self.config.layernorm_epsilon,
+            )
+        else:
+            self.post_attn_layernorm = None
 
     def forward(
         self,
@@ -338,7 +340,8 @@ class MultiLatentAttention(Attention):
         output, bias = self.linear_proj(core_attn_out)
 
         # Post-LN, JHSHIN ADDED.
-        output = self.post_attn_layernorm(output)
+        if self.post_attn_layernorm:
+            output = self.post_attn_layernorm(output)
 
         return output, bias
 

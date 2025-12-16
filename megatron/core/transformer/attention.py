@@ -210,14 +210,17 @@ class Attention(MegatronModule, ABC):
             set_save_original_input(self.linear_proj)
 
         # POST-LN, JHSHIN.
-        if submodules.post_attn_layernorm is None and HAVE_TE:
-            submodules.post_attn_layernorm = TENorm
-        self.post_attn_layernorm = build_module(
-            submodules.post_attn_layernorm,
-            hidden_size=self.config.hidden_size,
-            config=self.config,
-            eps=self.config.layernorm_epsilon,
-        )
+        if self.config.peri_layernorm:
+            if submodules.post_attn_layernorm is None and HAVE_TE:
+                submodules.post_attn_layernorm = TENorm
+            self.post_attn_layernorm = build_module(
+                submodules.post_attn_layernorm,
+                hidden_size=self.config.hidden_size,
+                config=self.config,
+                eps=self.config.layernorm_epsilon,
+            )
+        else:
+            self.post_attn_layernorm = None
 
     def _checkpointed_attention_forward(
         self,
@@ -859,7 +862,8 @@ class Attention(MegatronModule, ABC):
         nvtx_range_pop(suffix="linear_proj")
 
         # Post-LN, JHSHIN ADDED.
-        output = self.post_attn_layernorm(output)
+        if self.post_attn_layernorm:
+            output = self.post_attn_layernorm(output)
 
         return output, bias
 
