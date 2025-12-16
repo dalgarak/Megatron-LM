@@ -1449,6 +1449,8 @@ def _add_network_size_args(parser):
     group.add_argument('--max-position-embeddings', type=int, default=None,
                        help='Maximum number of position embeddings to use. '
                        'This is the size of position embedding.')
+    group.add_argument('--original-max-position-embeddings', type=int, default=4096,
+                       help='Maximum number of position embeddings for yarn.')
     group.add_argument('--position-embedding-type', type=str, default='learned_absolute',
                         choices=['learned_absolute', 'rope', 'mrope', 'relative', 'none'],
                         help='Position embedding type.')

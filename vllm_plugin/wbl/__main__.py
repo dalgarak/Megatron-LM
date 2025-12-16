@@ -2,6 +2,7 @@ if __name__ == "__main__":
     import os
     import random
     import string
+    import json
     from vllm import LLM, SamplingParams
 
     random.seed(42)
@@ -21,10 +22,10 @@ if __name__ == "__main__":
     prompt_path = os.getenv("PROMPT_PATH", None)
     if prompt_path is not None:
         with open(prompt_path, encoding="utf8") as r:
-            prompt = r.readline()
+            line = r.readline()
+        prompt = json.loads(line)["text"]
     else:
         prompt = os.getenv("PROMPT")
-    prompt = prompt.strip()
 
     # Warmup steps
     for _ in range(int(os.getenv("NUM_WARMUP", 2))):

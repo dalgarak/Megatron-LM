@@ -13,7 +13,7 @@ from transformers.masking_utils import create_causal_mask, create_sliding_window
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_layers import GradientCheckpointingLayer
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
-from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS, dynamic_rope_update
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, PreTrainedModel
 from transformers.processing_utils import Unpack
 from transformers.utils import TransformersKwargs, can_return_tuple
@@ -38,25 +38,19 @@ class WBLRMSNorm(nn.Module):
 
 
 class WBLRotaryEmbedding(nn.Module):
-    def __init__(self, config: WBLConfig, device=None):
+    def __init__(self, config: WBLConfig, rope_type="default", original_max_position_embeddings=None, device=None):
         super().__init__()
-        # BC: "rope_type" was originally "type"
-        if hasattr(config, "rope_scaling") and config.rope_scaling is not None and isinstance(config.rope_scaling, dict):
-            self.rope_type = config.rope_scaling.get("rope_type", config.rope_scaling.get("type"))
-        else:
-            self.rope_type = "default"
+        self.rope_type = rope_type
         self.max_seq_len_cached = config.max_position_embeddings
-        self.original_max_seq_len = config.max_position_embeddings
+        self.original_max_seq_len = original_max_position_embeddings
 
         self.config = config
         self.rope_init_fn = ROPE_INIT_FUNCTIONS[self.rope_type]
 
         inv_freq, self.attention_scaling = self.rope_init_fn(self.config, device)
         self.register_buffer("inv_freq", inv_freq, persistent=False)
-        self.original_inv_freq = self.inv_freq
 
     @torch.no_grad()
-    @dynamic_rope_update  # power user: used with advanced RoPE types (e.g. dynamic rope)
     def forward(self, x, position_ids):
         inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1).to(x.device)
         position_ids_expanded = position_ids[:, None, :].float()
@@ -258,10 +252,9 @@ class WBLAttention(nn.Module):
 
         self.scaling = self.qk_head_dim ** (-0.5)
         if self.config.rope_scaling is not None and not self.is_sliding:
-            # TODO: check yarn related logic
             mscale_all_dim = self.config.rope_scaling.get("mscale_all_dim", 0)
-            scaling_factor = self.config.rope_scaling["factor"]
             if mscale_all_dim:
+                scaling_factor = self.config.rope_scaling["factor"]
                 mscale = yarn_get_mscale(scaling_factor, mscale_all_dim)
                 self.scaling = self.scaling * mscale * mscale
 
@@ -408,8 +401,7 @@ class WBLPreTrainedModel(PreTrainedModel):
     supports_gradient_checkpointing = True
     _no_split_modules = ["WBLDecoderLayer"]
     _skip_keys_device_placement = ["past_key_values"]
-    _supports_flash_attn_3 = True
-    _supports_flash_attn_2 = True
+    _supports_flash_attn = True
     _supports_sdpa = False
     _supports_flex_attn = False
     _supports_cache_class = True
@@ -445,13 +437,21 @@ class WBLModel(WBLPreTrainedModel):
             [WBLDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
         self.norm = WBLRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.rotary_emb_local = WBLRotaryEmbedding(config=config)
         self.gradient_checkpointing = False
+        
+        self.rotary_emb_local = WBLRotaryEmbedding(config=config)
 
         config = copy.deepcopy(config)
         config.rope_theta = config.rope_theta_global
-        self.rotary_emb_global = WBLRotaryEmbedding(config=config)
-        self.rotary_emb_global.inv_freq /= 8.0  # TODO: Possibly change in the future
+        if self.config.rope_scaling is None:
+            rope_type = "default"
+            original_max_position_embeddings = config.max_position_embeddings
+        else:
+            rope_type = config.rope_scaling["rope_type"]
+            original_max_position_embeddings = config.rope_scaling["original_max_position_embeddings"]
+        self.rotary_emb_global = WBLRotaryEmbedding(config=config, rope_type=rope_type, original_max_position_embeddings=original_max_position_embeddings)
+        if rope_type == "default":
+            self.rotary_emb_global.inv_freq /= 8.0
 
         # Initialize weights and apply final processing
         self.post_init()
