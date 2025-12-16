@@ -140,11 +140,12 @@ class WBLMoE(nn.Module):
                 "Only silu is supported for now."
             )
 
+        params_dtype = torch.float32 if config.precision_level > 0 else None
         self.gate = ReplicatedLinear(
             config.hidden_size,
             config.n_routed_experts,
             bias=False,
-            params_dtype=torch.float32,
+            params_dtype=params_dtype,
             quant_config=None,
             prefix=f"{prefix}.gate",
         )
@@ -200,8 +201,12 @@ class WBLMoE(nn.Module):
         if self.is_sequence_parallel:
             hidden_states = sequence_parallel_chunk(hidden_states)
 
-        # router_logits: (num_tokens, n_experts)
-        router_logits, _ = self.gate(hidden_states.to(torch.float32))
+        dtype_orig = hidden_states.dtype
+        if self.gate.weight.dtype == torch.float32:
+            hidden_states = hidden_states.to(torch.float32)
+        router_logits, _ = self.gate(hidden_states)
+        hidden_states = hidden_states.to(dtype_orig)
+
         fused_moe_out = self.experts(
             hidden_states=hidden_states, router_logits=router_logits
         )
@@ -844,6 +849,7 @@ class WBLForCausalLM(
     def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
         super().__init__()
         config = vllm_config.model_config.hf_config
+        config.precision_level = vllm_config.additional_config.get("precision_level", 0)
         quant_config = vllm_config.quant_config
         self.config = config
         self.quant_config = quant_config
@@ -861,9 +867,11 @@ class WBLForCausalLM(
             vllm_config=vllm_config, prefix=maybe_prefix(prefix, "model")
         )
         if get_pp_group().is_last_rank:
+            params_dtype = torch.float32 if config.precision_level > 1 else None
             self.lm_head = ParallelLMHead(
                 config.vocab_size,
                 config.hidden_size,
+                params_dtype=params_dtype,
                 quant_config=quant_config,
                 prefix=maybe_prefix(prefix, "lm_head"),
             )
@@ -935,6 +943,8 @@ class WBLForCausalLM(
         self,
         hidden_states: torch.Tensor,
     ) -> torch.Tensor | None:
+        if self.lm_head.weight.dtype == torch.float32:
+            hidden_states = hidden_states.to(torch.float32)
         logits = self.logits_processor(self.lm_head, hidden_states)
         return logits
 
