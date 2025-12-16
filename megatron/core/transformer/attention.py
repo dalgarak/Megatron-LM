@@ -77,6 +77,7 @@ try:
     from megatron.core.extensions.transformer_engine import (
         SplitAlongDim,
         TELinear,
+        TENorm,
         set_save_original_input,
     )
 except ImportError:
