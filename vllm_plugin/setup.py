@@ -1,7 +1,7 @@
 import shutil
 from setuptools import setup
 
-shutil.copy("../bridge/configuration_wbl.py", "./wbl/")
+shutil.copy("../bridge/wbl_bridge/configuration_wbl.py", "./wbl/")
 setup(
     name='wbl',
     version='1.0.1',
