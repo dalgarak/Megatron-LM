@@ -4,7 +4,7 @@ from setuptools import setup
 shutil.copy("../bridge/wbl_bridge/configuration_wbl.py", "./wbl/")
 setup(
     name='wbl',
-    version='1.0.1',
+    version='1.1.1',
     packages=['wbl'],
     entry_points={
         'vllm.general_plugins': [
