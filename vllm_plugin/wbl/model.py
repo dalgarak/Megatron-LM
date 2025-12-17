@@ -849,7 +849,7 @@ class WBLForCausalLM(
     def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
         super().__init__()
         config = vllm_config.model_config.hf_config
-        config.precision_level = vllm_config.additional_config.get("precision_level", 0)
+        config.precision_level = vllm_config.additional_config.get("precision_level", 2)
         quant_config = vllm_config.quant_config
         self.config = config
         self.quant_config = quant_config
