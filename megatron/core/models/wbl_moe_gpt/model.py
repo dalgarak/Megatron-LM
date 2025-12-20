@@ -740,6 +740,8 @@ def get_wbl_moe_gpt_layer_with_transformer_engine_spec(
         ModuleSpec: Module specification with TE modules
 
     """
+    assert use_post_layernorm, "WBL model te engine definition have to use_post_layenorm=True"
+
     if fp8 is not None:
         warnings.warn(
             'The fp8 argument in "get_gpt_layer_with_transformer_engine_spec" has been deprecated'
