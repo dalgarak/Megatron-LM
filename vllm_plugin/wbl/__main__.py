@@ -10,6 +10,7 @@ if __name__ == "__main__":
         model=os.getenv("CKPT_PATH"),
         trust_remote_code=True,
         pipeline_parallel_size=8,
+        additional_config={"precision_level": 2},   # 0-2; 2 is most precise
         # enforce_eager=True,
     )
 

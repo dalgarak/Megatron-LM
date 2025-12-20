@@ -571,7 +571,7 @@ class WBLForCausalLM(WBLPreTrainedModel, GenerationMixin):
         super().__init__(config)
         self.model = WBLModel(config)
         self.vocab_size = config.vocab_size
-        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False, dtype=torch.float32)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -586,7 +586,7 @@ class WBLForCausalLM(WBLPreTrainedModel, GenerationMixin):
         return self.lm_head
 
     def set_output_embeddings(self, new_embeddings):
-        self.lm_head = new_embeddings
+        self.lm_head = new_embeddings.to(torch.float32)
 
     def set_decoder(self, decoder):
         self.model = decoder
@@ -633,7 +633,7 @@ class WBLForCausalLM(WBLPreTrainedModel, GenerationMixin):
         hidden_states = outputs.last_hidden_state
         # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
-        logits = self.lm_head(hidden_states[:, slice_indices, :])
+        logits = self.lm_head(hidden_states[:, slice_indices, :].to(self.lm_head.weight.dtype))
 
         loss = None
         if labels is not None:
